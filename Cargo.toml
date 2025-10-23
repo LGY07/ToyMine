@@ -14,3 +14,12 @@ toml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 colored = "3.0"
 uuid = { version = "1.17", features = ["v4"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "stream"] }
+tokio = { version = "1", features = ["full"] }
+sha2 = "0.10"
+hex = "0.4"
+indicatif = "0.18"
+futures = "0.3"
+rustic_core = "0.7"
+rustic_backend = "0.5"
+anyhow = "1.0"
