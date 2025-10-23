@@ -13,4 +13,4 @@ chrono = "0.4"
 toml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 colored = "3.0"
-uuid = { version = "1.18.1", features = ["v4"] }
+uuid = { version = "1.17", features = ["v4"] }
