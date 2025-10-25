@@ -1,13 +1,13 @@
+use futures::future::join_all;
+use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write, Read};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use tokio::task;
-use futures::future::join_all;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle, HumanDuration};
 
 #[derive(Debug)]
 pub enum DownloadError {
@@ -18,10 +18,14 @@ pub enum DownloadError {
 }
 
 impl From<reqwest::Error> for DownloadError {
-    fn from(err: reqwest::Error) -> Self { DownloadError::Request(err) }
+    fn from(err: reqwest::Error) -> Self {
+        DownloadError::Request(err)
+    }
 }
 impl From<std::io::Error> for DownloadError {
-    fn from(err: std::io::Error) -> Self { DownloadError::Io(err) }
+    fn from(err: std::io::Error) -> Self {
+        DownloadError::Io(err)
+    }
 }
 
 #[derive(Debug)]
@@ -31,7 +35,11 @@ pub struct FileDownloadResult {
     pub sha256: String,
 }
 
-pub fn download_files(urls: Vec<String>, dir: &str, threads: usize) -> Vec<Result<FileDownloadResult, DownloadError>> {
+pub fn download_files(
+    urls: Vec<String>,
+    dir: &str,
+    threads: usize,
+) -> Vec<Result<FileDownloadResult, DownloadError>> {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async { download_files_async(urls, dir, threads).await })
 }
@@ -45,10 +53,7 @@ async fn download_files_async(
     let mp = Arc::new(MultiProgress::new());
 
     let mut total_bytes = 0u64;
-    let client = Client::builder()
-        .use_rustls_tls()
-        .build()
-        .unwrap();
+    let client = Client::builder().use_rustls_tls().build().unwrap();
 
     for url in &urls {
         if let Ok(resp) = client.head(url).send().await {

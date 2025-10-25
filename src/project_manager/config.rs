@@ -1,7 +1,7 @@
+pub(crate) use crate::project_manager::tools::{ServerType, VersionType};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-pub(crate) use crate::project_manager::tools::{VersionType, ServerType};
 
 /// 实例配置文件
 #[derive(Debug, Deserialize, Serialize)]
@@ -44,7 +44,7 @@ pub struct Runtime {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Java {
     /// Java 环境管理方式
-    pub(crate) mode:JavaMode,
+    pub(crate) mode: JavaMode,
     /// Java 环境类型，仅当 `mode` 为 `manual` 时生效
     pub(crate) edition: JavaType,
     /// Java 版本，`edition` 生效且不为 `custom` 时生效
@@ -68,7 +68,7 @@ pub enum JavaMode {
     /// 自动根据游戏文件管理
     Auto,
     /// 手动指定版本，或者自定义 Java 环境
-    Manual
+    Manual,
 }
 
 /// Java 类型
@@ -130,15 +130,12 @@ pub struct PluginManage {
     pub(crate) manage: bool,
 }
 
-
-
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Config, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
         Ok(config)
     }
-
 
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let content = toml::to_string_pretty(self)?;
@@ -181,9 +178,7 @@ impl Config {
                     update: true,
                 }),
             },
-            plugin_manage: PluginManage {
-                manage: true,
-            },
+            plugin_manage: PluginManage { manage: true },
         }
     }
 }

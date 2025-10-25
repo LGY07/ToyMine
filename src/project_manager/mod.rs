@@ -1,6 +1,6 @@
-mod get_info;
 mod config;
 mod create;
+mod get_info;
 pub mod tools;
 
 pub use config::Config;

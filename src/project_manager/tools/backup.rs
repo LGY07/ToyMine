@@ -1,19 +1,21 @@
 use rustic_backend::BackendOptions;
-use rustic_core::{BackupOptions, CheckOptions, ConfigOptions, KeyOptions, PathList, Repository, RepositoryOptions, SnapshotOptions};
+use rustic_core::{
+    BackupOptions, CheckOptions, ConfigOptions, KeyOptions, PathList, Repository,
+    RepositoryOptions, SnapshotOptions,
+};
 use std::error::Error;
 
-const CACHE_DIR:&str = ".nmsl/cache/backup";
-const PASSWORD:&str = "";
+const CACHE_DIR: &str = ".nmsl/cache/backup";
+const PASSWORD: &str = "";
 
-fn init_repository(path:&str) -> Result<(), Box<dyn Error>> {
+fn init_repository(path: &str) -> Result<(), Box<dyn Error>> {
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Init repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR).password(PASSWORD);
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
     let key_opts = KeyOptions::default();
     let config_opts = ConfigOptions::default();
     let _repo = Repository::new(&repo_opts, &backends)?.init(&key_opts, &config_opts)?;
@@ -22,15 +24,14 @@ fn init_repository(path:&str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-
-fn check_repository(path:&str) -> Result<(), Box<dyn Error>> {
+fn check_repository(path: &str) -> Result<(), Box<dyn Error>> {
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+    let repo_opts = RepositoryOptions::default()
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?.open()?;
 
     // Check repository with standard options but omitting cache checks
@@ -39,7 +40,7 @@ fn check_repository(path:&str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn backup(paths:Vec<String>,tag:&str,backup_location:&str) -> Result<(), Box<dyn Error>> {
+pub fn backup(paths: Vec<String>, tag: &str, backup_location: &str) -> Result<(), Box<dyn Error>> {
     // Initialize Backends
     let backends = BackendOptions::default()
         .repository(backup_location)
@@ -48,12 +49,13 @@ pub fn backup(paths:Vec<String>,tag:&str,backup_location:&str) -> Result<(), Box
     // Initialize repository
     let _ = match check_repository(&backup_location) {
         Ok(_) => init_repository(&backup_location),
-        Err(_) => Ok(())
+        Err(_) => Ok(()),
     };
 
     // Open repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR).password(PASSWORD);
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
 
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?
@@ -61,9 +63,7 @@ pub fn backup(paths:Vec<String>,tag:&str,backup_location:&str) -> Result<(), Box
 
     let backup_opts = BackupOptions::default();
     let source = PathList::from_iter(paths).sanitize()?;
-    let snap = SnapshotOptions::default()
-        .add_tags(tag)?
-        .to_snapshot()?;
+    let snap = SnapshotOptions::default().add_tags(tag)?.to_snapshot()?;
 
     // Create snapshot
     let snap = repo.backup(&backup_opts, &source, snap)?;

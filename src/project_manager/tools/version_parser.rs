@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use reqwest::blocking;
-use std::error::Error;
 use lazy_static::lazy_static;
 use regex::Regex;
+use reqwest::blocking;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 
-const VERSION_API_URL:&str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
+const VERSION_API_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
 /// 可选的服务端类型
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)] // 添加 Clone 和 PartialEq
@@ -44,13 +44,13 @@ pub enum VersionType {
 
 /// 结合了版本名称、类型和服务器类型的版本信息结构体
 #[derive(Debug)]
-pub struct VersionInfo{
+pub struct VersionInfo {
     /// 版本名称/编号 (例如: "1.21.1", "24w10a")
     pub name: String,
     /// 版本类型 (Release, Snapshot, etc.)
     pub version_type: VersionType,
     /// 服务端类型 (Vanilla, Paper, BDS, etc.)
-    pub server_type: ServerType
+    pub server_type: ServerType,
 }
 
 // =========================================================================
@@ -101,12 +101,19 @@ impl VersionInfo {
 
     /// 1. 根据传入的服务端类型和版本字符串进行分析。
     /// 2. 始终保持返回的 name 和 server_type 不变。
-    pub fn get_version_info(version_name: &str, initial_server_type: ServerType) -> Result<Self, Box<dyn Error>> {
+    pub fn get_version_info(
+        version_name: &str,
+        initial_server_type: ServerType,
+    ) -> Result<Self, Box<dyn Error>> {
         // --- 步骤 1: Other 类型直接返回 ---
         if initial_server_type == ServerType::Other {
             // 对 Other 类型，仍然尝试猜测版本类型
             let version_type = VersionInfo::guess_version_type(version_name);
-            return Ok(Self::new(version_name.to_string(), version_type, initial_server_type));
+            return Ok(Self::new(
+                version_name.to_string(),
+                version_type,
+                initial_server_type,
+            ));
         }
 
         // --- 步骤 2: BDS 类型进行语义版本解析 ---
@@ -114,7 +121,11 @@ impl VersionInfo {
             // 格式错误则返回 Err
             let version_type = VersionInfo::validate_bds_format(version_name)?;
             // BDS 版本无需查询 Mojang API
-            return Ok(Self::new(version_name.to_string(), version_type, initial_server_type));
+            return Ok(Self::new(
+                version_name.to_string(),
+                version_type,
+                initial_server_type,
+            ));
         }
 
         // --- 步骤 3: 其他 Java-based 类型 (Vanilla, Paper, Folia, Spigot, Purpur) ---
@@ -127,17 +138,31 @@ impl VersionInfo {
         let client = blocking::Client::new();
 
         // 使用同步方法 .send()? 和 .json()? 替代 await
-        let manifest_result = client.get(VERSION_API_URL).send()?.json::<VersionManifest>();
+        let manifest_result = client
+            .get(VERSION_API_URL)
+            .send()?
+            .json::<VersionManifest>();
 
         match manifest_result {
             Ok(_) => {
                 // 查询成功，版本类型基于格式解析结果
-                Ok(Self::new(version_name.to_string(), version_type, initial_server_type))
-            },
+                Ok(Self::new(
+                    version_name.to_string(),
+                    version_type,
+                    initial_server_type,
+                ))
+            }
             Err(e) => {
-                eprintln!("Error fetching version manifest for Java server type {:?}: {}", initial_server_type, e);
+                eprintln!(
+                    "Error fetching version manifest for Java server type {:?}: {}",
+                    initial_server_type, e
+                );
                 // 查询失败则为 Unknown (版本类型)
-                Ok(Self::new(version_name.to_string(), VersionType::Unknown, initial_server_type))
+                Ok(Self::new(
+                    version_name.to_string(),
+                    VersionType::Unknown,
+                    initial_server_type,
+                ))
             }
         }
     }
@@ -152,10 +177,7 @@ impl VersionInfo {
 
         // 1. 发起同步 API 请求
         let client = blocking::Client::new();
-        let manifest: VersionManifest = client
-            .get(VERSION_API_URL)
-            .send()?
-            .json()?;
+        let manifest: VersionManifest = client.get(VERSION_API_URL).send()?.json()?;
 
         // 2. 根据版本类型查找最新 ID
         let latest_id = match version_type {
@@ -163,12 +185,16 @@ impl VersionInfo {
             VersionType::Snapshot => Some(manifest.latest.snapshot),
 
             // 对于旧版本，需要遍历 versions 列表，匹配 type 字段
-            VersionType::OldBeta => manifest.versions.iter()
+            VersionType::OldBeta => manifest
+                .versions
+                .iter()
                 // Mojang API 中的旧 Beta 版本 type 字段为 "old_beta"
                 .find(|v| v.version_type_str == "old_beta")
                 .map(|v| v.id.clone()),
 
-            VersionType::OldAlpha => manifest.versions.iter()
+            VersionType::OldAlpha => manifest
+                .versions
+                .iter()
                 // Mojang API 中的旧 Alpha 版本 type 字段为 "old_alpha"
                 .find(|v| v.version_type_str == "old_alpha")
                 .map(|v| v.id.clone()),
@@ -179,7 +205,11 @@ impl VersionInfo {
 
         match latest_id {
             Some(id) => Ok(id),
-            None => Err(format!("Could not find any version for type {:?} in the Mojang manifest.", version_type).into()),
+            None => Err(format!(
+                "Could not find any version for type {:?} in the Mojang manifest.",
+                version_type
+            )
+            .into()),
         }
     }
 
@@ -187,7 +217,8 @@ impl VersionInfo {
     fn guess_version_type(version_name: &str) -> VersionType {
         match VersionInfo::validate_java_format(version_name) {
             Ok(vt) => vt,
-            Err(_) => VersionInfo::validate_bds_format(version_name).unwrap_or_else(|_| VersionType::Unknown)
+            Err(_) => VersionInfo::validate_bds_format(version_name)
+                .unwrap_or_else(|_| VersionType::Unknown),
         }
     }
 
@@ -204,7 +235,11 @@ impl VersionInfo {
             // 在缺乏 BDS 官方清单的情况下，假设有效格式即为 Release。
             Ok(VersionType::Release)
         } else {
-            Err(format!("Invalid BDS version format (expected X.Y.Z[.B]): {}", version_name).into())
+            Err(format!(
+                "Invalid BDS version format (expected X.Y.Z[.B]): {}",
+                version_name
+            )
+            .into())
         }
     }
 
@@ -229,9 +264,12 @@ impl VersionInfo {
         } else if version_name.to_lowercase().starts_with('a') {
             // 粗略判断为 OldAlpha
             Ok(VersionType::OldAlpha)
-        }
-        else {
-            Err(format!("Invalid JE version format (expected X.Y.Z or YYwWWa): {}", version_name).into())
+        } else {
+            Err(format!(
+                "Invalid JE version format (expected X.Y.Z or YYwWWa): {}",
+                version_name
+            )
+            .into())
         }
     }
 }

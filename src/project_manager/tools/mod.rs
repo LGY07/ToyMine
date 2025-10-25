@@ -1,9 +1,9 @@
-mod downloader;
 mod backup;
+mod downloader;
 mod file_info;
 mod version_parser;
 
-pub use downloader::download_files;
-pub use file_info::{get_mime_type,analyze_jar,analyze_je_game,JarInfo};
 pub use backup::backup;
-pub use version_parser::{VersionType,ServerType,VersionInfo};
+pub use downloader::download_files;
+pub use file_info::{JarInfo, analyze_jar, analyze_je_game, get_mime_type};
+pub use version_parser::{ServerType, VersionInfo, VersionType};
