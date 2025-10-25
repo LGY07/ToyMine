@@ -1,9 +1,10 @@
-use crate::project_manager::tools::{ServerType, VersionInfo, VersionType};
+use crate::project_manager::tools::{ServerType, VersionInfo};
+use regex::Regex;
 use std::fs::File;
-use std::io::{Error, Read};
+use std::io::{Cursor, Error, Read};
 use std::path::PathBuf;
 use tree_magic_mini;
-use zip::read::ZipArchive;
+use zip::read::{ZipArchive, ZipFile};
 
 #[derive(Debug)]
 pub struct JarInfo {
@@ -20,7 +21,7 @@ pub enum JarError {
 }
 
 impl From<Error> for JarError {
-    fn from(err: Error) -> Self {
+    fn from(_err: Error) -> Self {
         JarError::IoError(())
     }
 }
@@ -36,7 +37,9 @@ pub fn get_mime_type(path: &PathBuf) -> Result<String, ()> {
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
 pub fn analyze_jar(jar_path: &PathBuf) -> Result<JarInfo, JarError> {
+    // 打开文件
     let file = File::open(jar_path).map_err(|_| JarError::NotJar)?;
+    // 读取 zip
     let mut archive = ZipArchive::new(&file).map_err(|_| JarError::NotJar)?;
 
     // 读取 META-INF/MANIFEST.MF
@@ -58,13 +61,14 @@ pub fn analyze_jar(jar_path: &PathBuf) -> Result<JarInfo, JarError> {
         })
         .ok_or(JarError::NoMainClass)?;
 
+    // 读取 zip
     let mut archive = ZipArchive::new(&file).map_err(|_| JarError::NotJar)?;
     // Main-Class 转 class 文件路径
     let class_path = format!("{}.class", main_class.replace('.', "/"));
     let mut class_file = archive
         .by_name(&class_path)
         .map_err(|_| JarError::ClassNotFound)?;
-
+    // 读取魔术字
     let mut class_header = [0u8; 8];
     class_file.read_exact(&mut class_header)?;
 
@@ -83,21 +87,25 @@ pub fn analyze_jar(jar_path: &PathBuf) -> Result<JarInfo, JarError> {
     })
 }
 
+/// 分析 server.jar 文件，尝试获得游戏版本
 pub fn analyze_je_game(jar_path: &PathBuf) -> Result<VersionInfo, String> {
-    // 读取 Zip 文件和获取 JarInfo
+    // 获取 JarInfo 和读取 Zip 文件
     let info = analyze_jar(jar_path).map_err(|e| format!("{:?}", e))?;
     let file = File::open(jar_path).map_err(|e| format!("{:?}", e))?;
-    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
 
-    // 1.18+ 版本 server.jar 文件格式的分析
-    if (info.main_class == "net.minecraft.bundler.Main"
+    // 谨慎使用 `?` `unwrap()` `expect()`，避免影响后续判断
+
+    // 1.18+ 版本获取信息(读取 META-INF/versions.list)
+    // 读取 Jar 文件
+    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    // 判断主类格式
+    if info.main_class == "net.minecraft.bundler.Main"
         || info.main_class == "io.papermc.paperclip.Main"
-        || info.main_class == "org.leavesmc.leavesclip.Main")
+        || info.main_class == "org.leavesmc.leavesclip.Main"
     {
         // 读取 `META-INF/versions.list`
         let mut version_file = archive
             .by_name("META-INF/versions.list")
-            .map_err(|_| JarError::NoMainClass)
             .map_err(|e| format!("{:?}", e))?;
         let mut version_list = String::new();
         version_file
@@ -108,7 +116,6 @@ pub fn analyze_je_game(jar_path: &PathBuf) -> Result<VersionInfo, String> {
         // 形如 "2e2867d1c6559bdb660808deaeccb12c9ca41eb04e7b4e2adae87546e1878184	1.21.10	1.21.10/server-1.21.10.jar"
         let info_list = version_list.split("/").collect::<Vec<_>>()[1].replace(".jar", "");
         let info_list: Vec<&str> = info_list.split("-").collect();
-
         // 分析服务端类型
         let server_type = match info_list[0].trim() {
             "server" => ServerType::Vanilla,
@@ -119,11 +126,180 @@ pub fn analyze_je_game(jar_path: &PathBuf) -> Result<VersionInfo, String> {
             _ => ServerType::Other,
         };
 
-        let version_info = VersionInfo::get_version_info(info_list[1].trim(), server_type)
-            .map_err(|e| format!("{:?}", e))?;
-        return Ok(version_info);
+        // 解析版本号
+        if info_list.len() == 2 {
+            let version_info = VersionInfo::get_version_info(info_list[1].trim(), server_type)
+                .map_err(|e| format!("{:?}", e))?;
+            return Ok(version_info);
+        }
     }
-    // 旧版本文件格式分析
-    println!("The old version is not supported for the time being!");
-    todo!()
+
+    // 1.14+ 版本获取信息(读取 version.json)
+    // 读取 Jar 文件
+    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    // 读取 version.json
+    match archive
+        .by_name("version.json")
+        .map_err(|e| format!("{:?}", e))
+    {
+        Ok(mut file) => {
+            // 转换 version.json 为字符串
+            let mut version_json_string = String::new();
+            file.read_to_string(&mut version_json_string)
+                .map_err(|e| format!("{:?}", e))?;
+            // 从 json 获得 name 键的值
+            // 找到 "name"
+            let key = "\"name\"";
+            let start = version_json_string.find(key).expect("Problematic JSON.") + key.len();
+            // 找到冒号
+            let after_colon = version_json_string[start..]
+                .find(':')
+                .expect("Problematic JSON.");
+            let rest = &version_json_string[start + after_colon + 1..];
+            // 去掉前面的空白和引号
+            let rest = rest.trim_start();
+            if rest.starts_with('"') {
+                // 普通字符串值
+                let end_quote = rest[1..].find('"').expect("Problematic JSON.");
+                let version = &rest[1..1 + end_quote];
+                // 解析版本号
+                let version_info = VersionInfo::get_version_info(version, ServerType::Other)
+                    .map_err(|e| format!("{:?}", e))?;
+                return Ok(version_info);
+            }
+        }
+        Err(_) => (),
+    };
+
+    // Paper 服务端尝试获取信息(尝试读取 patch.properties)
+    // 读取 Jar 文件
+    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    // 读取 patch.properties
+    match archive
+        .by_name("patch.properties")
+        .map_err(|e| format!("{:?}", e))
+    {
+        Ok(mut file) => {
+            // 转换 patch.properties 为字符串
+            let mut properties_string = String::new();
+            file.read_to_string(&mut properties_string)
+                .map_err(|e| format!("{:?}", e))?;
+            // 从 ini 获取 version 键的值
+            for line in properties_string.lines() {
+                // 去掉首尾空白字符
+                let line = line.trim();
+                // 跳过空行或注释
+                if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                    continue;
+                }
+                // 找到 key=value 格式
+                if let Some((key, value)) = line.split_once('=') {
+                    if key.trim().eq_ignore_ascii_case("version") {
+                        // 解析版本号
+                        let version_info = VersionInfo::get_version_info(value, ServerType::Paper)
+                            .map_err(|e| format!("{:?}", e))?;
+                        return Ok(version_info);
+                    }
+                }
+            }
+        }
+        Err(_) => (),
+    };
+
+    // 其他 Vanilla 版本尝试获取信息(直接读取 MainClass 的字符串常量池)
+    // 读取 Jar 文件
+    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    // 读取 MainClass
+    let mut main_class = archive
+        .by_name(format!("{}.class", info.main_class.replace('.', "/")).as_str())
+        .map_err(|e| format!("{:?}", e))?;
+    // 读取字符串常量池
+    let strings = parse_class_strings_from_zip(&mut main_class);
+    // 创建正则表达式，假设为 x.x.x
+    let re = Regex::new(r"[0-9]+\.[0-9]+\.[0-9]+").unwrap();
+    for s in &strings {
+        if let Some(m) = re.find(s) {
+            // 解析版本号
+            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)
+                .map_err(|e| format!("{:?}", e))?;
+            return Ok(version_info);
+        }
+    }
+    // 创建正则表达式，假设为 x.x
+    let re = Regex::new(r"[0-9]+\.[0-9]+").unwrap();
+    for s in &strings {
+        if let Some(m) = re.find(s) {
+            // 解析版本号
+            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)
+                .map_err(|e| format!("{:?}", e))?;
+            return Ok(version_info);
+        }
+    }
+
+    Err("Version parsing failed: Version information cannot be found.".to_string())
+}
+
+/// 从 ZipFile 读取 .class 文件并解析字符串常量池
+fn parse_class_strings_from_zip(file: &mut ZipFile<&File>) -> Vec<String> {
+    fn read_u1(c: &mut Cursor<Vec<u8>>) -> Option<u8> {
+        let mut b = [0u8; 1];
+        c.read_exact(&mut b).ok()?;
+        Some(b[0])
+    }
+
+    fn read_u2(c: &mut Cursor<Vec<u8>>) -> Option<u16> {
+        let mut b = [0u8; 2];
+        c.read_exact(&mut b).ok()?;
+        Some(u16::from_be_bytes(b))
+    }
+
+    fn read_u4(c: &mut Cursor<Vec<u8>>) -> Option<u32> {
+        let mut b = [0u8; 4];
+        c.read_exact(&mut b).ok()?;
+        Some(u32::from_be_bytes(b))
+    }
+
+    // 读取 ZipFile 内容
+    let mut data = Vec::new();
+    if file.read_to_end(&mut data).is_err() {
+        return Vec::new(); // 失败返回空列表
+    }
+    let mut c = Cursor::new(data);
+
+    // 跳过魔数和版本号
+    let _magic = read_u4(&mut c).unwrap_or_else(|| 0);
+    let _minor = read_u2(&mut c).unwrap_or_else(|| 0);
+    let _major = read_u2(&mut c).unwrap_or_else(|| 0);
+
+    // 常量池数量
+    let cp_count = read_u2(&mut c).unwrap_or_else(|| 0);
+    let mut strings: Vec<String> = Vec::new();
+    let mut i = 1;
+
+    while i < cp_count {
+        let tag = read_u1(&mut c).unwrap_or_else(|| 0);
+        match tag {
+            1 => {
+                // CONSTANT_Utf8_info
+                let len = read_u2(&mut c).unwrap_or_else(|| 0) as usize;
+                let mut buf = vec![0u8; len];
+                if c.read_exact(&mut buf).is_err() {
+                    break;
+                }
+                strings.push(String::from_utf8_lossy(&buf).into_owned());
+            }
+            3 | 4 => c.set_position(c.position() + 4),
+            5 | 6 => {
+                c.set_position(c.position() + 8);
+                i += 1
+            }
+            7 | 8 | 16 => c.set_position(c.position() + 2),
+            9 | 10 | 11 | 12 | 18 => c.set_position(c.position() + 4),
+            15 => c.set_position(c.position() + 3),
+            _ => break,
+        }
+        i += 1;
+    }
+
+    strings
 }
