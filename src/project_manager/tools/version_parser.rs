@@ -18,8 +18,8 @@ pub enum ServerType {
     Paper,
     /// PaperMC 的多线程服务端
     Folia,
-    /// SpigotMC 服务端
-    Spigot,
+    /// LeavesMC 服务端
+    Leaves,
     /// PurpurMC 服务端
     Purpur,
     /// 自定义服务端，不支持更新功能以及插件管理
@@ -231,7 +231,7 @@ impl VersionInfo {
             Ok(VersionType::OldAlpha)
         }
         else {
-            Err(format!("Invalid Java version format (expected X.Y.Z or YYwWWa): {}", version_name).into())
+            Err(format!("Invalid JE version format (expected X.Y.Z or YYwWWa): {}", version_name).into())
         }
     }
 }

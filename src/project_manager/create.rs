@@ -1,30 +1,58 @@
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use colored::Colorize;
 use crate::project_manager::Config;
 use crate::project_manager::config::{Backup, Event, Java, JavaType, PluginManage, Project, Runtime, ServerType, Time};
 use crate::project_manager::get_info::{get_info, NotValid};
-use crate::project_manager::tools::{VersionInfo, VersionType};
+use crate::project_manager::tools::{analyze_jar, get_mime_type, VersionInfo, VersionType, JarInfo, analyze_je_game};
 
-/// 获取一行输入，带有提示符 `>`
-fn get_input()->String{
-    // 初始化输入缓存
-    let mut input_buffer = String::new();
-    // 打印提示符
-    print!(">");
-    std::io::Write::flush(&mut std::io::stdout()).expect("ERROR: Failed to print the prompt message");
-    // 处理错误
-    match std::io::stdin().read_line(&mut input_buffer) {
-        Ok(_) => input_buffer,
-        Err(_)=> panic!("Unknown input error!")
+pub fn create_project(){
+    match get_info() {
+        Ok(_)=>println!("{}","The project already exists!".yellow()),
+        Err(e) => {
+            match e {
+                NotValid::ConfigBroken=>eprintln!("{}","There are files related to NMSL in the current directory, but they may be damaged. Please check the .nmsl directory and the NMSL.toml file. You need to manually delete them to continue creating.".yellow()),
+                NotValid::NotConfigured=>{
+
+                    let config = if Path::new("server.jar").exists() {
+                        create_config_jar_file(PathBuf::from_str("server.jar").unwrap()).unwrap_or_else(|e| {
+                            eprintln!("{:?}",e);
+                            create_config_empty()})
+                    } else if Path::new("server").exists() {
+                        todo!()
+                    }else {
+                        create_config_empty()
+                    };
+
+
+                    match config.to_file(Path::new("NMSL.toml")){
+                        Ok(_)=>(),
+                        Err(_)=>panic!("The configuration file cannot be created!")
+                    }
+                    match fs::create_dir(".nmsl") {
+                        Ok(_)=>(),
+                        Err(_)=>panic!("Directory cannot be created!")
+                    }
+                    match fs::create_dir(".nmsl/cache") {
+                        Ok(_)=>(),
+                        Err(_)=>panic!("Directory cannot be created!")
+                    }
+                    match fs::create_dir(".nmsl/backup") {
+                        Ok(_)=>(),
+                        Err(_)=>panic!("Directory cannot be created!")
+                    }
+                    println!("{}","The project has been successfully created".green())
+                }
+            }
+        }
     }
 }
 
 fn check_dir(path: PathBuf)->bool{todo!()}
 
-/// 询问用户配置信息
-fn create_config()->Config{
+/// 询问用户配置信息并创建配置文件
+fn create_config_empty()->Config{
 
     // 创建基本配置
     let mut new_config = Config::default();
@@ -38,7 +66,7 @@ fn create_config()->Config{
     println!("1: Vanilla(Official)");
     println!("2: PaperMC");
     println!("3: PurpurMC");
-    println!("4: SpigotMC");
+    println!("4: LeavesMC");
     println!("5: Bedrock Dedicated Server(Official)");
     println!("0: Other Server");
     new_config.project.server_type = loop {
@@ -57,7 +85,7 @@ fn create_config()->Config{
             1 => break ServerType::Vanilla,
             2 => break ServerType::Paper,
             3 => break ServerType::Purpur,
-            4 => break ServerType::Spigot,
+            4 => break ServerType::Leaves,
             5 => break ServerType::BDS,
             0 => break ServerType::Other,
             _ => {
@@ -124,33 +152,35 @@ fn create_config()->Config{
     new_config
 }
 
-pub fn create_project(){
-    match get_info() {
-        Ok(_)=>println!("{}","The project already exists!".yellow()),
-        Err(e) => {
-            match e {
-                NotValid::ConfigBroken=>eprintln!("{}","There are files related to NMSL in the current directory, but they may be damaged. Please check the .nmsl directory and the NMSL.toml file. You need to manually delete them to continue creating.".yellow()),
-                NotValid::NotConfigured=>{
-                    let config =create_config();
-                    match config.to_file(Path::new("NMSL.toml")){
-                        Ok(_)=>(),
-                        Err(_)=>panic!("The configuration file cannot be created!")
-                    }
-                    match fs::create_dir(".nmsl") {
-                        Ok(_)=>(),
-                        Err(_)=>panic!("Directory cannot be created!")
-                    }
-                    match fs::create_dir(".nmsl/cache") {
-                        Ok(_)=>(),
-                        Err(_)=>panic!("Directory cannot be created!")
-                    }
-                    match fs::create_dir(".nmsl/backup") {
-                        Ok(_)=>(),
-                        Err(_)=>panic!("Directory cannot be created!")
-                    }
-                    println!("{}","The project has been successfully created".green())
-                }
-            }
-        }
+/// 通过已有的服务端文件创建配置
+fn create_config_jar_file(server_file:PathBuf)->Result<Config,String>{
+
+    // 创建基本配置
+    let mut new_config = Config::default();
+
+    let version_info = analyze_je_game(&server_file).map_err(|e| {format!("{:?}",e)})?;
+
+    new_config.project.version=version_info.name.clone();
+    new_config.project.server_type=version_info.server_type.clone();
+    new_config.project.version_type=version_info.version_type.clone();
+
+    // 获取实例名称
+    println!("Enter the name of this project:");
+    new_config.project.name = get_input().trim().to_string();
+
+    Ok(new_config)
+}
+
+/// 获取一行输入，带有提示符 `>`
+fn get_input()->String{
+    // 初始化输入缓存
+    let mut input_buffer = String::new();
+    // 打印提示符
+    print!(">");
+    std::io::Write::flush(&mut std::io::stdout()).expect("ERROR: Failed to print the prompt message");
+    // 处理错误
+    match std::io::stdin().read_line(&mut input_buffer) {
+        Ok(_) => input_buffer,
+        Err(_)=> panic!("Unknown input error!")
     }
 }
