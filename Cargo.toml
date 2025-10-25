@@ -22,6 +22,12 @@ futures = "0.3"
 rustic_core = "0.8"
 rustic_backend = "0.5"
 zip = "6.0"
-tree_magic_mini = { version = "3.2", features = [] }
-lazy_static = "1.5.0"
-regex = "1.12.2"
+tree_magic_mini = "3.2"
+lazy_static = "1.5"
+regex = "1.12"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
