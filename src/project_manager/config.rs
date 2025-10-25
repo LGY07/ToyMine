@@ -30,7 +30,7 @@ pub struct Project {
     /// 服务端可执行文件路径
     pub(crate) execute: String,
     /// 服务器创建日期
-    pub(crate) birthday: String,
+    pub(crate) birthday: chrono::DateTime<chrono::Utc>,
 }
 
 /// 运行环境管理
@@ -150,7 +150,7 @@ impl Config {
                 server_type: ServerType::Vanilla,
                 execute: "server.jar".to_string(),
                 version: "latest".to_string(),
-                birthday: chrono::Utc::now().to_rfc3339(),
+                birthday: chrono::Utc::now(),
                 version_type: VersionType::Release,
             },
             runtime: Runtime {
