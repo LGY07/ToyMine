@@ -53,10 +53,7 @@ pub struct VersionInfo {
     pub server_type: ServerType,
 }
 
-// =========================================================================
 //  Manifest 结构体，用于解析 Mojang 的版本清单
-// =========================================================================
-
 /// 用于解析 Mojang API 中最新的 Release 和 Snapshot 版本 ID
 #[derive(Deserialize, Debug)]
 struct LatestVersions {
@@ -66,7 +63,7 @@ struct LatestVersions {
 
 #[derive(Deserialize, Debug)]
 struct VersionManifest {
-    latest: LatestVersions, // 新增：用于获取最新的 Release 和 Snapshot
+    latest: LatestVersions,
     versions: Vec<ManifestVersion>,
 }
 
@@ -78,10 +75,7 @@ struct ManifestVersion {
     version_type_str: String,
 }
 
-// =========================================================================
 // 核心逻辑函数
-// =========================================================================
-
 impl VersionInfo {
     /// 创建一个新的 VersionInfo 实例
     pub fn new(name: String, version_type: VersionType, server_type: ServerType) -> Self {
@@ -105,9 +99,9 @@ impl VersionInfo {
         version_name: &str,
         initial_server_type: ServerType,
     ) -> Result<Self, Box<dyn Error>> {
-        // --- 步骤 1: Other 类型直接返回 ---
+        // Other 类型直接返回
         if initial_server_type == ServerType::Other {
-            // 对 Other 类型，仍然尝试猜测版本类型
+            // 对 Other 类型尝试猜测版本类型
             let version_type = VersionInfo::guess_version_type(version_name);
             return Ok(Self::new(
                 version_name.to_string(),
@@ -116,11 +110,10 @@ impl VersionInfo {
             ));
         }
 
-        // --- 步骤 2: BDS 类型进行语义版本解析 ---
+        // BDS 类型进行语义版本解析
         if initial_server_type == ServerType::BDS {
             // 格式错误则返回 Err
             let version_type = VersionInfo::validate_bds_format(version_name)?;
-            // BDS 版本无需查询 Mojang API
             return Ok(Self::new(
                 version_name.to_string(),
                 version_type,
@@ -128,21 +121,17 @@ impl VersionInfo {
             ));
         }
 
-        // --- 步骤 3: 其他 Java-based 类型 (Vanilla, Paper, Folia, Spigot, Purpur) ---
+        // 其他 Java-based 类型 (Vanilla, Paper, Folia, Spigot, Purpur)
 
-        // 3a. 格式解析 (格式错误直接返回错误)
+        // 格式解析 (格式错误直接返回错误)
         let version_type = VersionInfo::validate_java_format(version_name)?;
 
-        // 3b. 查询 Mojang 官方版本清单 (正确格式则查询)
-        // 使用 blocking 客户端
+        // 查询 Mojang 官方版本清单 (正确格式则查询)
         let client = blocking::Client::new();
-
-        // 使用同步方法 .send()? 和 .json()? 替代 await
         let manifest_result = client
             .get(VERSION_API_URL)
             .send()?
             .json::<VersionManifest>();
-
         match manifest_result {
             Ok(_) => {
                 // 查询成功，版本类型基于格式解析结果
@@ -175,11 +164,11 @@ impl VersionInfo {
             return Err("Cannot find the latest version for an Unknown type.".into());
         }
 
-        // 1. 发起同步 API 请求
+        // 发起 API 请求
         let client = blocking::Client::new();
         let manifest: VersionManifest = client.get(VERSION_API_URL).send()?.json()?;
 
-        // 2. 根据版本类型查找最新 ID
+        // 根据版本类型查找最新 ID
         let latest_id = match version_type {
             VersionType::Release => Some(manifest.latest.release),
             VersionType::Snapshot => Some(manifest.latest.snapshot),
@@ -274,57 +263,44 @@ impl VersionInfo {
     }
 }
 
-// 示例函数: 展示如何创建和使用 VersionInfo
 #[cfg(test)]
 fn main() {
-    // ----------------------------------------------------
-    // 示例 1: Java 正式版 (查询成功, Vanilla, Release)
-    // ----------------------------------------------------
+    // Java 正式版 (查询成功, Vanilla, Release)
     println!("--- Testing Vanilla Release (1.21.1) ---");
     match VersionInfo::get_version_info("1.21.1", ServerType::Vanilla) {
         Ok(info) => info.display_summary(),
         Err(e) => eprintln!("Error: {}", e),
     }
 
-    // ----------------------------------------------------
-    // 示例 2: Java 格式错误 (应返回 Err)
-    // ----------------------------------------------------
+    // Java 格式错误 (应返回 Err)
     println!("\n--- Testing Paper Invalid Format (bad-v1) ---");
     match VersionInfo::get_version_info("bad-v1", ServerType::Paper) {
         Ok(info) => info.display_summary(),
         Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
     }
 
-    // ----------------------------------------------------
-    // 示例 3: BDS 有效版本 (BDS, Release)
-    // ----------------------------------------------------
+    // BDS 有效版本 (BDS, Release)
     println!("\n--- Testing BDS Valid Version (1.20.70.21) ---");
     match VersionInfo::get_version_info("1.20.70.21", ServerType::BDS) {
         Ok(info) => info.display_summary(),
         Err(e) => eprintln!("Error: {}", e),
     }
 
-    // ----------------------------------------------------
-    // 示例 4: BDS 格式错误 (应返回 Err)
-    // ----------------------------------------------------
+    // BDS 格式错误 (应返回 Err)
     println!("\n--- Testing BDS Invalid Format (1.20) ---");
     match VersionInfo::get_version_info("1.20", ServerType::BDS) {
         Ok(info) => info.display_summary(),
         Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
     }
 
-    // ----------------------------------------------------
-    // 示例 5: Other 类型 (直接返回, ServerType不变)
-    // ----------------------------------------------------
+    // Other 类型 (直接返回, ServerType不变)
     println!("\n--- Testing Other Type (Some-Mod-v2.0) ---");
     match VersionInfo::get_version_info("Some-Mod-v2.0", ServerType::Other) {
         Ok(info) => info.display_summary(),
         Err(e) => eprintln!("Error: {}", e),
     }
 
-    // ----------------------------------------------------
-    // 示例 6: Java 快照版 (查询成功, Paper, Snapshot)
-    // ----------------------------------------------------
+    // Java 快照版 (查询成功, Paper, Snapshot)
     println!("\n--- Testing Paper Snapshot (24w08a) ---");
     match VersionInfo::get_version_info("24w08a", ServerType::Paper) {
         Ok(info) => info.display_summary(),
