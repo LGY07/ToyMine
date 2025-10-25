@@ -16,12 +16,12 @@ pub enum JarError {
     NotJar,
     NoMainClass,
     ClassNotFound,
-    IoError(Error),
+    IoError(()),
 }
 
 impl From<Error> for JarError {
     fn from(err: Error) -> Self {
-        JarError::IoError(err)
+        JarError::IoError(())
     }
 }
 
