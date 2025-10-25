@@ -2,7 +2,9 @@ use rustic_backend::BackendOptions;
 use rustic_core::{BackupOptions, CheckOptions, ConfigOptions, KeyOptions, PathList, Repository, RepositoryOptions, SnapshotOptions};
 use std::error::Error;
 
-const CACHE_DIR:&str= ".nmsl/cache/backup";
+const CACHE_DIR:&str = ".nmsl/cache/backup";
+const PASSWORD:&str = "";
+
 fn init_repository(path:&str) -> Result<(), Box<dyn Error>> {
     // Initialize Backends
     let backends = BackendOptions::default()
@@ -11,7 +13,7 @@ fn init_repository(path:&str) -> Result<(), Box<dyn Error>> {
 
     // Init repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR);
+        .cache_dir(CACHE_DIR).password(PASSWORD);
     let key_opts = KeyOptions::default();
     let config_opts = ConfigOptions::default();
     let _repo = Repository::new(&repo_opts, &backends)?.init(&key_opts, &config_opts)?;
@@ -28,7 +30,7 @@ fn check_repository(path:&str) -> Result<(), Box<dyn Error>> {
         .to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR);
+    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?.open()?;
 
     // Check repository with standard options but omitting cache checks
@@ -44,14 +46,14 @@ pub fn backup(paths:Vec<String>,tag:&str,backup_location:&str) -> Result<(), Box
         .to_backends()?;
 
     // Initialize repository
-    match check_repository(&backup_location) {
+    let _ = match check_repository(&backup_location) {
         Ok(_) => init_repository(&backup_location),
         Err(_) => Ok(())
-    }?;
+    };
 
     // Open repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR);
+        .cache_dir(CACHE_DIR).password(PASSWORD);
 
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?
