@@ -89,7 +89,7 @@ pub fn analyze_je_game(jar_path: &PathBuf) -> Result<VersionInfo, String> {
     let file = File::open(jar_path).map_err(|e| format!("{:?}", e))?;
     let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
 
-    // 新版本 server.jar 文件格式的分析
+    // 1.18+ 版本 server.jar 文件格式的分析
     if (info.main_class == "net.minecraft.bundler.Main"
         || info.main_class == "io.papermc.paperclip.Main"
         || info.main_class == "org.leavesmc.leavesclip.Main")
