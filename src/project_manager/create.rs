@@ -43,7 +43,9 @@ pub fn create_project() {
         // 尝试分析 server 成功则根据已有二进制文件创建，否则按照空项目处理
         println!("Bedrock Edition version is not supported for the time being!");
         todo!()
-    } else if get_mime_type(&PathBuf::from("bedrock_server.exe")) == "application/x-msdownload" {
+    } else if get_mime_type(&PathBuf::from("bedrock_server.exe"))
+        == "application/vnd.microsoft.portable-executable"
+    {
         // 尝试分析 server.exe 成功则根据已有二进制文件创建，否则按照空项目处理
         println!("Bedrock Edition version is not supported for the time being!");
         todo!()
@@ -124,60 +126,75 @@ fn create_config_empty() -> Config {
     // 获取并验证版本号
     if new_config.project.server_type.eq(&ServerType::BDS) {
         // 先检查基岩版
+
         println!("Set the game version."); // 提示信息
-        let input = get_input().trim().to_string(); //输入
-        new_config.project.version = loop {
-            //确保输入完成
+        // 确保设置格式正确的版本号
+        loop {
+            let input = get_input().trim().to_string(); //输入
             match VersionInfo::get_version_info(&input, ServerType::BDS) {
-                Ok(v) => break v.name,
+                Ok(v) => {
+                    // 成功设置
+                    new_config.project.version = v.name;
+                    break;
+                }
                 Err(e) => {
+                    // 重新输入
                     eprintln!("{}", e);
                     println!("{}", "Please re-enter the version".yellow());
                     continue;
                 }
             }
-        };
+        }
     } else if new_config.project.server_type.ne(&ServerType::Other) {
         // 再检查Java版
+
         println!("Set the game version. The default is the latest version."); // 提示信息
-        let input = get_input().trim().to_string(); //输入
-        new_config.project.version = match &input[..] {
-            // 默认为最新Release版本
-            "" => VersionInfo::get_latest_version(VersionType::Release).unwrap(),
-            "latest" => VersionInfo::get_latest_version(VersionType::Release).unwrap(),
-            _ => {
-                // 手动设置版本
-                loop {
-                    //确保输入完成
-                    match VersionInfo::get_version_info(
-                        &input,
-                        new_config.project.server_type.clone(),
-                    ) {
-                        Ok(v) => {
-                            new_config.project.version_type = v.version_type;
-                            break v.name;
-                        }
-                        Err(e) => {
-                            eprintln!("{}", e);
-                            println!("{}", "Please re-enter the version".yellow());
-                            continue;
-                        }
+        // 确保正确设置版本
+        loop {
+            let input = get_input().trim().to_string(); //输入
+            if (&input == "" || &input == "latest") {
+                // 默认的最新版本
+
+                // version_type 默认已经为 Release
+                // 获取最新版本
+                new_config.project.version = VersionInfo::get_latest_version(VersionType::Release)
+                    .expect("Failed to get the latest version");
+                // 成功设置
+                break;
+            } else {
+                // 手动设置的版本
+
+                // 判断输入版本是否存在
+                match VersionInfo::get_version_info(&input, new_config.project.server_type.clone())
+                {
+                    Ok(v) => {
+                        // 成功设置
+                        new_config.project.version_type = v.version_type;
+                        new_config.project.version = v.name;
+                        break;
+                    }
+                    Err(e) => {
+                        // 重新输入
+                        eprintln!("{}", e);
+                        println!("{}", "Please re-enter the version".yellow());
+                        continue;
                     }
                 }
             }
-        };
+        }
     }
 
     new_config
 }
 
-/// 通过已有的服务端文件创建配置
+/// 通过已有的 jar 服务端文件创建配置
 fn create_config_jar_file(server_file: PathBuf) -> Result<Config, String> {
     // 创建基本配置
     let mut new_config = Config::default();
 
+    // 解析 jar 文件获得版本信息
     let version_info = analyze_je_game(&server_file).map_err(|e| format!("{:?}", e))?;
-
+    // 设置版本信息
     new_config.project.version = version_info.name.clone();
     new_config.project.server_type = version_info.server_type.clone();
     new_config.project.version_type = version_info.version_type.clone();
