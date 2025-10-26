@@ -27,11 +27,11 @@ impl From<Error> for JarError {
 }
 
 /// 根据文件路径获取 MIME 类型（路径传入 &str）
-pub fn get_mime_type(path: &PathBuf) -> Result<String, ()> {
+pub fn get_mime_type(path: &PathBuf) -> String {
     // 使用 tree_magic_mini 检测 MIME 类型
     match tree_magic_mini::from_filepath(path) {
-        None => Err(()),
-        Some(v) => Ok(v.to_string()),
+        None => "unknown".to_string(),
+        Some(v) => v.to_string(),
     }
 }
 

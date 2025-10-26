@@ -2,7 +2,7 @@ use crate::project_manager::Config;
 use crate::project_manager::config::{
     Backup, Event, Java, JavaType, PluginManage, Project, Runtime, ServerType, Time,
 };
-use crate::project_manager::get_info::{NotValid, get_info};
+use crate::project_manager::get_info::{ConfigErr, get_info};
 use crate::project_manager::tools::{
     JarInfo, VersionInfo, VersionType, analyze_jar, analyze_je_game, get_mime_type,
 };
@@ -11,60 +11,58 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+const DIR_LIST: [&str; 4] = [".nmsl", ".nmsl/cache", ".nmsl/backup", ".nmsl/runtime"];
+
+/// 初始化配置文件
 pub fn create_project() {
-    match get_info() {
+    // 判断配置是否完整存在
+    let config_err = match get_info() {
         // 项目已存在
-        Ok(_) => println!("{}", "The project already exists!".yellow()),
-        Err(e) => {
-            match e {
-                // 项目残留文件存在，要求手动处理
-                NotValid::ConfigBroken=>eprintln!("{}","There are files related to NMSL in the current directory, but they may be damaged. Please check the .nmsl directory and the NMSL.toml file. You need to manually delete them to continue creating.".yellow()),
-
-                // 项目不存在，尝试创建
-                NotValid::NotConfigured=> {
-
-                    // 判断是否有 server.jar 文件
-                    let config = if Path::new("server.jar").exists() {
-
-                        // 尝试分析 server.jar 成功则根据已有 jar 创建
-                        create_config_jar_file(PathBuf::from_str("server.jar").unwrap()).unwrap_or_else(|e| {
-                            eprintln!("{:?}", e);
-                            create_config_empty()
-                        })
-                    } else if Path::new("server").exists() {
-
-                        // 尝试分析 server 成功则根据已有二进制文件创建，否则按照空项目处理
-                        println!("Bedrock Edition version is not supported for the time being!");
-                        todo!()
-                    } else {
-
-                        // 按空项目创建
-                        create_config_empty()
-                    };
-
-                    // 初始化项目
-                    // 创建配置文件
-                    match config.to_file(Path::new("NMSL.toml")) {
-                        Ok(_) => (),
-                        Err(_) => panic!("The configuration file cannot be created!")
-                    }
-                    // 创建目录
-                    let dir_list = vec![".nmsl",".nmsl/cache",".nmsl/backup",".nmsl/runtime"];
-                    for i in dir_list{
-                    match fs::create_dir(i) {
-                        Ok(_) => (),
-                        Err(_) => panic!("Directory cannot be created!")
-                    }
-                }
-                println!("{}","The project has been successfully created".green())
-                }
-            }
+        Ok(_) => {
+            println!("{}", "The project already exists!".yellow());
+            return;
         }
-    }
-}
+        Err(e) => e,
+    };
 
-fn check_dir(path: PathBuf) -> bool {
-    todo!()
+    // 项目残留文件存在，要求手动处理
+    if config_err.eq(&ConfigErr::ConfigBroken) {
+        eprintln!("{}","There are files related to NMSL in the current directory, but they may be damaged. Please check the .nmsl directory and the NMSL.toml file. You need to manually delete them to continue creating.".yellow());
+        return;
+    }
+
+    // 项目不存在，尝试创建
+    // 判断是否有 server 文件
+    let config = if get_mime_type(&PathBuf::from("server.jar")) == "application/zip" {
+        // 尝试分析 server.jar 成功则根据已有 jar 创建
+        create_config_jar_file(PathBuf::from_str("server.jar").unwrap()).unwrap_or_else(|e| {
+            eprintln!("{:?}", e);
+            create_config_empty()
+        })
+    } else if get_mime_type(&PathBuf::from("bedrock_server")) == "application/x-executable" {
+        // 尝试分析 server 成功则根据已有二进制文件创建，否则按照空项目处理
+        println!("Bedrock Edition version is not supported for the time being!");
+        todo!()
+    } else if get_mime_type(&PathBuf::from("bedrock_server.exe")) == "application/x-msdownload" {
+        // 尝试分析 server.exe 成功则根据已有二进制文件创建，否则按照空项目处理
+        println!("Bedrock Edition version is not supported for the time being!");
+        todo!()
+    } else {
+        // 按空项目创建
+        create_config_empty()
+    };
+
+    // 初始化项目
+    // 创建配置文件
+    config
+        .to_file(Path::new("NMSL.toml"))
+        .expect("The configuration file cannot be created!");
+    // 创建目录
+    for i in DIR_LIST {
+        fs::create_dir(i).expect("Directory cannot be created!")
+    }
+
+    println!("{}", "The project has been successfully created".green())
 }
 
 /// 询问用户配置信息并创建配置文件
@@ -96,7 +94,7 @@ fn create_config_empty() -> Config {
             }
         };
         // 解析输入为 ServerType
-        let input = match input {
+        match input {
             1 => break ServerType::Vanilla,
             2 => break ServerType::Paper,
             3 => break ServerType::Purpur,
