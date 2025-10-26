@@ -1,21 +1,21 @@
 use rustic_backend::BackendOptions;
-use rustic_core::{
-    BackupOptions, CheckOptions, ConfigOptions, KeyOptions, PathList, Repository,
-    RepositoryOptions, SnapshotOptions,
-};
+use rustic_core::{BackupOptions, CheckOptions, ConfigOptions, KeyOptions, LocalDestination, LsOptions, PathList, Repository, RepositoryOptions, RestoreOptions, SnapshotOptions};
 use std::error::Error;
 
+/// 默认的缓存目录
 const CACHE_DIR: &str = ".nmsl/cache/backup";
+/// 默认的备份密码，无意义，所以用空字符串
 const PASSWORD: &str = "";
 
-fn init_repository(path: &str) -> Result<(), Box<dyn Error>> {
+/// 初始化备份仓库
+pub fn backup_init_repo(path: &str) -> Result<(), Box<dyn Error>> {
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path)
+        .to_backends()?;
 
     // Init repository
-    let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR)
-        .password(PASSWORD);
+    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
     let key_opts = KeyOptions::default();
     let config_opts = ConfigOptions::default();
     let _repo = Repository::new(&repo_opts, &backends)?.init(&key_opts, &config_opts)?;
@@ -24,14 +24,44 @@ fn init_repository(path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn check_repository(path: &str) -> Result<(), Box<dyn Error>> {
+/// 创建快照
+pub fn backup_new_snap(path:&str,tag:&str,source:Vec<&str>) -> Result<(), Box<dyn Error>> {
+
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path)
+        .to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR)
-        .password(PASSWORD);
+    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+
+    let repo = Repository::new(&repo_opts, &backends)?
+        .open()?
+        .to_indexed_ids()?;
+
+    let backup_opts = BackupOptions::default();
+    let source = PathList::from_iter(source).sanitize()?;
+    let snap = SnapshotOptions::default()
+        .add_tags(tag)?
+        .to_snapshot()?;
+
+    // Create snapshot
+    let snap = repo.backup(&backup_opts, &source, snap)?;
+
+    println!("successfully created snapshot:\n{snap:#?}");
+    Ok(())
+}
+
+/// 检查仓库
+pub fn backup_check_repo(path:&str) -> Result<(), Box<dyn Error>> {
+
+    // Initialize Backends
+    let backends = BackendOptions::default()
+        .repository(path)
+        .to_backends()?;
+
+    // Open repository
+    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?.open()?;
 
     // Check repository with standard options but omitting cache checks
@@ -40,34 +70,35 @@ fn check_repository(path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn backup(paths: Vec<String>, tag: &str, backup_location: &str) -> Result<(), Box<dyn Error>> {
+/// 恢复快照
+pub fn backup_restore_snap(path:&str,snap:&str,destination:&str) -> Result<(), Box<dyn Error>> {
+
     // Initialize Backends
     let backends = BackendOptions::default()
-        .repository(backup_location)
+        .repository(path)
         .to_backends()?;
 
-    // Initialize repository
-    let _ = match check_repository(&backup_location) {
-        Ok(_) => init_repository(&backup_location),
-        Err(_) => Ok(()),
-    };
-
     // Open repository
-    let repo_opts = RepositoryOptions::default()
-        .cache_dir(CACHE_DIR)
-        .password(PASSWORD);
-
+    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?
-        .to_indexed_ids()?;
+        .to_indexed()?;
 
-    let backup_opts = BackupOptions::default();
-    let source = PathList::from_iter(paths).sanitize()?;
-    let snap = SnapshotOptions::default().add_tags(tag)?.to_snapshot()?;
+    // use latest snapshot without filtering snapshots
+    let node = repo.node_from_snapshot_path(snap, |_| true)?;
 
-    // Create snapshot
-    let snap = repo.backup(&backup_opts, &source, snap)?;
+    // use list of the snapshot contents using no additional filtering
+    let streamer_opts = LsOptions::default();
+    let ls = repo.ls(&node, &streamer_opts)?;
 
-    println!("successfully created snapshot:\n{snap:#?}");
+    let create = true; // create destination dir, if it doesn't exist
+    let dest = LocalDestination::new(destination, create, !node.is_dir())?;
+
+    let opts = RestoreOptions::default();
+    let dry_run = false;
+    // create restore infos. Note: this also already creates needed dirs in the destination
+    let restore_infos = repo.prepare_restore(&opts, ls.clone(), &dest, dry_run)?;
+
+    repo.restore(restore_infos, &opts, ls, &dest)?;
     Ok(())
 }
