@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressStyle};
+use log::debug;
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
@@ -49,6 +50,7 @@ async fn download_files_async(
     dir: &str,
     threads: usize,
 ) -> Vec<Result<FileDownloadResult, DownloadError>> {
+    debug!("Download the files");
     fs::create_dir_all(dir).ok();
     let mp = Arc::new(MultiProgress::new());
 

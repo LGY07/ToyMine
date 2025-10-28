@@ -1,6 +1,7 @@
 use crate::project_manager::config::JavaType;
 use crate::project_manager::tools::download_files;
 use flate2::read::GzDecoder;
+use log::debug;
 use std::fs;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,7 @@ const DEFAULT_DOWNLOAD_THREAD: usize = 5;
 
 /// 自动管理 Java 的情况下，自动下载 Java
 pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), String> {
+    debug!("Prepare Java");
     let runtime_path = PathBuf::from(format!(
         ".nmsl/runtime/java-{}-{}-{}-{}",
         version,
@@ -37,6 +39,7 @@ pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), String> {
 
 /// 检查 JAVA_HOME 是否可用，通过尝试运行 `java -version`
 fn check_java(java_home: &Path) -> bool {
+    debug!("Check Java");
     let java_bin = if cfg!(windows) {
         java_home.join("bin").join("java.exe")
     } else {
@@ -57,6 +60,7 @@ fn check_java(java_home: &Path) -> bool {
 
 /// 下载并安装 GraalVM
 fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), String> {
+    debug!("Prepare GraalVM");
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
     let url = format!(
         "https://download.oracle.com/graalvm/{version}/archive/graalvm-jdk-{version}_{}-{}_bin.{extension}",
@@ -68,7 +72,7 @@ fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), String> {
 
     let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
     let files = files_vec
-        .get(0)
+        .first()
         .ok_or("No files downloaded")?
         .as_ref()
         .map_err(|e| format!("{:?}", e))?;
@@ -86,6 +90,7 @@ fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), String> {
 
 /// 下载并安装 OpenJDK
 fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), String> {
+    debug!("Prepare OpenJDK");
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
     let url = format!(
         "https://download.java.net/java/GA/jdk{version}/latest/binaries/jdk-{version}_{}-{}_bin.{extension}",
@@ -97,7 +102,7 @@ fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), String> {
 
     let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
     let files = files_vec
-        .get(0)
+        .first()
         .ok_or("No files downloaded")?
         .as_ref()
         .map_err(|e| format!("{:?}", e))?;
@@ -115,6 +120,7 @@ fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), String> {
 
 /// 下载并安装 OracleJDK
 fn prepare_oracle_jdk(version: usize, runtime_path: &Path) -> Result<(), String> {
+    debug!("Prepare OracleJDK");
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
     let url = format!(
         "https://download.oracle.com/java/GA/jdk{version}/latest/binaries/jdk-{version}_{}-{}_bin.{extension}",
@@ -126,7 +132,7 @@ fn prepare_oracle_jdk(version: usize, runtime_path: &Path) -> Result<(), String>
 
     let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
     let files = files_vec
-        .get(0)
+        .first()
         .ok_or("No files downloaded")?
         .as_ref()
         .map_err(|e| format!("{:?}", e))?;
@@ -144,6 +150,7 @@ fn prepare_oracle_jdk(version: usize, runtime_path: &Path) -> Result<(), String>
 
 /// SHA256 校验
 fn verify_sha256(url: &str, expected: &str) -> Result<(), String> {
+    debug!("Verify the SHA256 value");
     let client = reqwest::blocking::Client::new();
     let resp = client
         .get(format!("{}.sha256", url))
@@ -163,6 +170,7 @@ fn verify_sha256(url: &str, expected: &str) -> Result<(), String> {
 
 /// 解压 zip 文件
 fn unzip_file(zip_path: &Path, dest_dir: &Path) -> Result<(), String> {
+    debug!("Unzip the ZIP file");
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
     for i in 0..archive.len() {
@@ -184,6 +192,7 @@ fn unzip_file(zip_path: &Path, dest_dir: &Path) -> Result<(), String> {
 
 /// 解压 tar.gz 文件
 fn untar_gz_file(tar_gz_path: &Path, dest_dir: &Path) -> Result<(), String> {
+    debug!("Unzip the tar.gz file");
     let tar_gz = fs::File::open(tar_gz_path).map_err(|e| e.to_string())?;
     let tar = GzDecoder::new(BufReader::new(tar_gz));
     let mut archive = Archive::new(tar);
