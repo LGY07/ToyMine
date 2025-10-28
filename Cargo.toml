@@ -27,7 +27,9 @@ regex = "1.12"
 infer = "0.19"
 simplelog = "0.12"
 log = "0.4"
-clap = { version = "4.5.42", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+flate2 = "1.1"
+tar = "0.4"
 
 [profile.release]
 strip = true

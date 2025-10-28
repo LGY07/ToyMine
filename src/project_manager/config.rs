@@ -77,12 +77,12 @@ pub enum JavaMode {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum JavaType {
+    /// OpenJDK，默认使用 Microsoft 构建
+    OpenJDK,
     /// GraalVM JDK
     GraalVM,
     /// Oracle JDK
     OracleJDK,
-    /// OpenJDK，默认使用 Microsoft 构建
-    OpenJDK,
     /// 自定义的 Java 环境，不支持自动管理
     Custom,
 }
@@ -159,7 +159,7 @@ impl Config {
                 java: Java {
                     mode: JavaMode::Auto,
                     version: 21,
-                    edition: JavaType::GraalVM,
+                    edition: JavaType::OpenJDK,
                     custom: String::new(),
                     arguments: vec![],
                     xms: 0,

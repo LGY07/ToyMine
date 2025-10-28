@@ -2,6 +2,7 @@
 pub(crate) mod backup;
 mod downloader;
 mod file_parser;
+mod java_manager;
 mod version_parser;
 
 pub use backup::{backup_check_repo, backup_init_repo, backup_new_snap, backup_restore_snap};
