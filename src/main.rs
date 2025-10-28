@@ -128,4 +128,6 @@ fn main() {
         // 初始化项目
         create_project()
     }
+
+    // TODO:运行清理
 }

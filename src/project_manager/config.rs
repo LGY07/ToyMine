@@ -81,8 +81,6 @@ pub enum JavaType {
     OpenJDK,
     /// GraalVM JDK
     GraalVM,
-    /// Oracle JDK
-    OracleJDK,
     /// 自定义的 Java 环境，不支持自动管理
     Custom,
 }
@@ -336,7 +334,6 @@ impl Display for JavaType {
         match self {
             JavaType::GraalVM => write!(f, "graalvm"),
             JavaType::OpenJDK => write!(f, "openjdk"),
-            JavaType::OracleJDK => write!(f, "oraclejdk"),
             JavaType::Custom => write!(f, "custom"),
         }
     }

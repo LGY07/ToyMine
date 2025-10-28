@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use log::error;
+use log::{debug, error};
 use regex::Regex;
 use reqwest::blocking;
 use serde::{Deserialize, Serialize};
@@ -57,23 +57,83 @@ pub struct VersionInfo {
 //  Manifest 结构体，用于解析 Mojang 的版本清单
 /// 用于解析 Mojang API 中最新的 Release 和 Snapshot 版本 ID
 #[derive(Deserialize, Debug)]
-struct LatestVersions {
-    release: String,
-    snapshot: String,
+pub struct LatestVersions {
+    pub(crate) release: String,
+    pub(crate) snapshot: String,
 }
 
 #[derive(Deserialize, Debug)]
-struct VersionManifest {
-    latest: LatestVersions,
-    versions: Vec<ManifestVersion>,
+pub struct VersionManifest {
+    pub(crate) latest: LatestVersions,
+    pub(crate) versions: Vec<ManifestVersion>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct ManifestVersion {
-    id: String,
+pub struct ManifestVersion {
+    pub(crate) id: String,
     // 'type' 字段在 JSON 中，但 Rust 关键字冲突，所以用 rename
     #[serde(rename = "type")]
-    version_type_str: String,
+    pub(crate) version_type_str: String,
+    pub(crate) url: String,
+}
+
+/// 版本服务端的JSON
+#[derive(Deserialize)]
+struct VersionJson {
+    downloads: VersionJsonDownloads,
+}
+/// 版本服务端的JSON-downloads字段
+#[derive(Deserialize)]
+struct VersionJsonDownloads {
+    server: VersionJsonServer,
+}
+/// 版本服务端的JSON-downloads-server字段
+#[derive(Deserialize)]
+struct VersionJsonServer {
+    sha1: String,
+    url: String,
+}
+
+/// Manifest 下载函数
+impl VersionManifest {
+    /// 下载并解析 Mojang 官方的 version_manifest_v2.json
+    pub fn fetch() -> Result<Self, Box<dyn Error>> {
+        const URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
+
+        // 使用阻塞客户端，简单易用
+        let response = reqwest::blocking::get(URL)?;
+        if !response.status().is_success() {
+            return Err(format!("Request failed: {}", response.status()).into());
+        }
+
+        // 直接将响应体反序列化为结构体
+        let manifest: VersionManifest = response.json()?;
+        Ok(manifest)
+    }
+    /// 搜索版本
+    pub fn search(&self, name: String) -> Result<ManifestVersion, Box<dyn Error>> {
+        for i in self.versions.clone() {
+            if i.id == name {
+                return Ok(i);
+            }
+        }
+        Err(Box::from("Unable to find version"))
+    }
+}
+
+impl ManifestVersion {
+    /// 获取服务端下载链接和 SHA1 值，第一个返回值为 URL 第二个为 SHA1
+    pub fn to_download(&self) -> Result<(String, String), Box<dyn Error>> {
+        let response = reqwest::blocking::get(&self.url)?;
+        if !response.status().is_success() {
+            return Err(format!("Request failed: {}", response.status()).into());
+        }
+        let server_download = response.json::<VersionJson>()?;
+        Ok((
+            server_download.downloads.server.url,
+            server_download.downloads.server.sha1,
+        ))
+    }
 }
 
 // 核心逻辑函数
@@ -128,11 +188,7 @@ impl VersionInfo {
         let version_type = VersionInfo::validate_java_format(version_name)?;
 
         // 查询 Mojang 官方版本清单 (正确格式则查询)
-        let client = blocking::Client::new();
-        let manifest_result = client
-            .get(VERSION_API_URL)
-            .send()?
-            .json::<VersionManifest>();
+        let manifest_result = VersionManifest::fetch();
         match manifest_result {
             Ok(_) => {
                 // 查询成功，版本类型基于格式解析结果
@@ -166,8 +222,7 @@ impl VersionInfo {
         }
 
         // 发起 API 请求
-        let client = blocking::Client::new();
-        let manifest: VersionManifest = client.get(VERSION_API_URL).send()?.json()?;
+        let manifest = VersionManifest::fetch()?;
 
         // 根据版本类型查找最新 ID
         let latest_id = match version_type {

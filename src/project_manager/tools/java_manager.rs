@@ -1,5 +1,5 @@
 use crate::project_manager::config::JavaType;
-use crate::project_manager::tools::download_files;
+use crate::project_manager::tools::{DEFAULT_DOWNLOAD_THREAD, DOWNLOAD_CACHE_DIR, download_files};
 use flate2::read::GzDecoder;
 use log::debug;
 use std::error::Error;
@@ -9,9 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tar::Archive;
 use zip::ZipArchive;
-
-const CACHE_DIR: &str = ".nmsl/cache/download";
-const DEFAULT_DOWNLOAD_THREAD: usize = 5;
 
 /// 自动管理 Java 的情况下，自动下载 Java
 pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), Box<dyn Error>> {
@@ -31,7 +28,6 @@ pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), Box<dyn Err
     match edition {
         JavaType::GraalVM => prepare_graalvm(version, &runtime_path)?,
         JavaType::OpenJDK => prepare_openjdk(version, &runtime_path)?,
-        JavaType::OracleJDK => prepare_oracle_jdk(version, &runtime_path)?,
         JavaType::Custom => unreachable!("Custom Java should not call prepare_java"),
     }
 
@@ -62,6 +58,7 @@ pub fn check_java(java_home: &Path) -> bool {
 /// 下载并安装 GraalVM
 fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
     debug!("Prepare GraalVM");
+    // 拼接 URL
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
     let url = format!(
         "https://download.oracle.com/graalvm/{version}/archive/graalvm-jdk-{version}_{}-{}_bin.{extension}",
@@ -70,101 +67,113 @@ fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Er
         version = version,
         extension = extension
     );
-
-    let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
-    let files = files_vec
-        .first()
-        .ok_or("No files downloaded")?
-        .as_ref()
-        .map_err(|e| format!("{:?}", e))?;
-
-    verify_sha256(&url, &files.sha256)?;
-
-    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
-    if extension == "zip" {
-        unzip_file(&files.path, runtime_path)?;
-    } else {
-        untar_gz_file(&files.path, runtime_path)?;
-    }
-    Ok(())
-}
-
-/// 下载并安装 OpenJDK
-fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
-    debug!("Prepare OpenJDK");
-    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
-    let url = format!(
-        "https://download.java.net/java/GA/jdk{version}/latest/binaries/jdk-{version}_{}-{}_bin.{extension}",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        version = version,
-        extension = extension
+    // 下载文件
+    let files_vec = download_files(
+        vec![url.clone()],
+        DOWNLOAD_CACHE_DIR,
+        DEFAULT_DOWNLOAD_THREAD,
     );
-
-    let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
     let files = files_vec
         .first()
         .ok_or("No files downloaded")?
         .as_ref()
         .map_err(|e| format!("{:?}", e))?;
 
-    verify_sha256(&url, &files.sha256)?;
-
-    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
-    if extension == "zip" {
-        unzip_file(&files.path, runtime_path)?;
-    } else {
-        untar_gz_file(&files.path, runtime_path)?;
-    }
-    Ok(())
-}
-
-/// 下载并安装 OracleJDK
-fn prepare_oracle_jdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
-    debug!("Prepare OracleJDK");
-    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
-    let url = format!(
-        "https://download.oracle.com/java/GA/jdk{version}/latest/binaries/jdk-{version}_{}-{}_bin.{extension}",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        version = version,
-        extension = extension
-    );
-
-    let files_vec = download_files(vec![url.clone()], CACHE_DIR, DEFAULT_DOWNLOAD_THREAD);
-    let files = files_vec
-        .first()
-        .ok_or("No files downloaded")?
-        .as_ref()
-        .map_err(|e| format!("{:?}", e))?;
-
-    verify_sha256(&url, &files.sha256)?;
-
-    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
-    if extension == "zip" {
-        unzip_file(&files.path, runtime_path)?;
-    } else {
-        untar_gz_file(&files.path, runtime_path)?;
-    }
-    Ok(())
-}
-
-/// SHA256 校验
-fn verify_sha256(url: &str, expected: &str) -> Result<(), Box<dyn Error>> {
+    // 校验文件
     debug!("Verify the SHA256 value");
     let client = reqwest::blocking::Client::new();
     let resp = client
         .get(format!("{}.sha256", url))
         .send()
         .map_err(|e| e.to_string())?;
-
     if !resp.status().is_success() {
         return Err(format!("Request failed: {}", resp.status()).into());
     }
-
     let remote_sha = resp.text().unwrap_or_default().trim().to_string();
-    if expected != remote_sha {
+    if files.sha256 != remote_sha {
         return Err(Box::from("SHA256 verification failed"));
+    }
+    // 解压文件
+    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
+    if extension == "zip" {
+        unzip_file(&files.path, runtime_path)?;
+    } else {
+        untar_gz_file(&files.path, runtime_path)?;
+    }
+    flatten_runtime_dir(runtime_path)?;
+    // 检查安装是否成功
+    if check_java(runtime_path) {
+        Ok(())
+    } else {
+        Err(Box::from("Failed to install Runtime"))
+    }
+}
+
+/// 下载并安装 OpenJDK
+fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
+    debug!("Prepare OpenJDK");
+    // 拼接 URL，此处使用 Microsoft 构建的 OpenJDK
+    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
+    let url = format!(
+        "https://aka.ms/download-jdk/microsoft-jdk-{}-{}-{}.{}",
+        version,
+        std::env::consts::OS,
+        std::env::consts::ARCH.replace("86_", ""),
+        extension
+    );
+    // 下载文件
+    let files_vec = download_files(
+        vec![url.clone()],
+        DOWNLOAD_CACHE_DIR,
+        DEFAULT_DOWNLOAD_THREAD,
+    );
+    let files = files_vec
+        .first()
+        .ok_or("No files downloaded")?
+        .as_ref()
+        .map_err(|e| format!("{:?}", e))?;
+    // 校验文件
+    debug!("Verify the SHA256 value");
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get(format!("{}.sha256sum.txt", url))
+        .send()
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Request failed: {}", resp.status()).into());
+    }
+    let remote_sha = resp.text().unwrap_or_default().trim().to_string();
+    if files.sha256 != remote_sha.split(' ').collect::<Vec<&str>>()[0].trim() {
+        return Err(Box::from("SHA256 verification failed"));
+    }
+    // 解压文件
+    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
+    if extension == "zip" {
+        unzip_file(&files.path, runtime_path)?;
+    } else {
+        untar_gz_file(&files.path, runtime_path)?;
+    }
+    flatten_runtime_dir(runtime_path)?;
+    // 检查安装是否成功
+    if check_java(runtime_path) {
+        Ok(())
+    } else {
+        Err(Box::from("Failed to install Runtime"))
+    }
+}
+
+/// 解决解压文件夹内还有文件夹的问题
+fn flatten_runtime_dir(dest_dir: &Path) -> Result<(), Box<dyn Error>> {
+    let entries: Vec<_> = fs::read_dir(dest_dir)?.collect::<Result<_, _>>()?;
+    if entries.len() == 1 {
+        let inner = entries[0].path();
+        if inner.is_dir() {
+            for entry in fs::read_dir(&inner)? {
+                let entry = entry?;
+                fs::rename(entry.path(), dest_dir.join(entry.file_name()))?;
+            }
+            fs::remove_dir(inner)?;
+        }
     }
     Ok(())
 }

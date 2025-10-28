@@ -1,13 +1,13 @@
 use crate::project_manager::Config;
 use crate::project_manager::config::{JavaMode, JavaType};
 use crate::project_manager::tools::{
-    ServerType, VersionInfo, analyze_jar, analyze_je_game, check_java, get_mime_type, install_bds,
-    install_je, prepare_java,
+    ServerType, VersionInfo, analyze_jar, check_java, get_mime_type, install_bds, install_je,
+    prepare_java,
 };
 use log::debug;
 use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::fs;
+use std::path::Path;
 
 pub fn start_server(config: Config) -> Result<(), Box<dyn Error>> {
     pre_run(&config)?;
@@ -57,7 +57,7 @@ fn pre_run(config: &Config) -> Result<(), Box<dyn Error>> {
         // 安装 Java 版服务端
         debug!("Install the Java Edition server");
         install_je(VersionInfo::get_version_info(
-            &*config.project.version,
+            &config.project.version,
             config.project.server_type.clone(),
         )?)?;
     }

@@ -1,4 +1,5 @@
 use crate::project_manager::Config;
+use futures::future::err;
 use log::error;
 use std::path::Path;
 
@@ -23,7 +24,13 @@ fn read_config() -> Result<Config, ConfigErr> {
 
     match Config::from_file(config_path) {
         Ok(v) => Ok(v),
-        Err(_) => Err(ConfigErr::ConfigBroken),
+        Err(e) => {
+            error!("{:?}", e);
+            error!(
+                "Failed to read the configuration file. Please check if the configuration file is correct."
+            );
+            Err(ConfigErr::ConfigBroken)
+        }
     }
 }
 
