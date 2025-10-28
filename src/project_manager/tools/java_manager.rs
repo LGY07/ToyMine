@@ -39,7 +39,7 @@ pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), Box<dyn Err
 }
 
 /// 检查 JAVA_HOME 是否可用，通过尝试运行 `java -version`
-fn check_java(java_home: &Path) -> bool {
+pub fn check_java(java_home: &Path) -> bool {
     debug!("Check Java");
     let java_bin = if cfg!(windows) {
         java_home.join("bin").join("java.exe")

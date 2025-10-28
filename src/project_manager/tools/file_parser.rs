@@ -5,7 +5,7 @@ use regex::Regex;
 use std::error::Error;
 use std::fs::File;
 use std::io::{Cursor, Read};
-use std::path::PathBuf;
+use std::path::Path;
 use zip::read::{ZipArchive, ZipFile};
 
 #[derive(Debug)]
@@ -15,7 +15,7 @@ pub struct JarInfo {
 }
 
 /// 根据文件路径获取 MIME 类型（路径传入 &str）
-pub fn get_mime_type(path: &PathBuf) -> String {
+pub fn get_mime_type(path: &Path) -> String {
     // 使用 infer 检测 MIME 类型
     infer::get_from_path(path).map_or("empty".to_string(), |mime| {
         mime.map_or("unknown".to_string(), |mime| mime.to_string())
@@ -23,7 +23,7 @@ pub fn get_mime_type(path: &PathBuf) -> String {
 }
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
-pub fn analyze_jar(jar_path: &PathBuf) -> Result<JarInfo, Box<dyn Error>> {
+pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Box<dyn Error>> {
     // 打开文件
     let file = File::open(jar_path)?;
     // 读取 zip
@@ -74,7 +74,7 @@ pub fn analyze_jar(jar_path: &PathBuf) -> Result<JarInfo, Box<dyn Error>> {
 }
 
 /// 分析 server.jar 文件，尝试获得游戏版本
-pub fn analyze_je_game(jar_path: &PathBuf) -> Result<VersionInfo, Box<dyn Error>> {
+pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     // 获取 JarInfo 和读取 Zip 文件
     let info = analyze_jar(jar_path).map_err(|e| format!("{:?}", e))?;
     let file = File::open(jar_path).map_err(|e| format!("{:?}", e))?;

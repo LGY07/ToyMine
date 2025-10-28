@@ -74,7 +74,7 @@ pub enum JavaMode {
 }
 
 /// Java 类型
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub enum JavaType {
     /// OpenJDK，默认使用 Microsoft 构建
