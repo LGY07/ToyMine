@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{env, fs};
 use tokio::fs::OpenOptions;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, mpsc};
@@ -144,13 +144,19 @@ pub fn start_server(config: Config) -> Result<(), Error> {
             let child_stdin_clone = child_stdin.clone();
             let stop_clone = stop_flag_clone.clone();
             let stdin_handle = spawn(async move {
-                let mut stdin_reader = BufReader::new(tokio::io::stdin());
-                let mut buffer = String::new();
+                let mut stdin = tokio::io::stdin();
+                let mut buf = [0u8; 1024];
+
                 while !stop_clone.load(Ordering::SeqCst) {
-                    if stdin_reader.read_line(&mut buffer).await? > 0 {
-                        let mut stdin = child_stdin_clone.lock().await;
-                        stdin.write_all(buffer.as_bytes()).await?;
-                        buffer.clear();
+                    match stdin.read(&mut buf).await {
+                        Ok(n) if n > 0 => {
+                            let mut child_stdin = child_stdin_clone.lock().await;
+                            let _ = child_stdin.write_all(&buf[..n]).await;
+                        }
+                        _ => {
+                            // 没有输入就稍微休眠，避免忙循环
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
                     }
                 }
                 Ok::<(), Error>(())
@@ -158,8 +164,10 @@ pub fn start_server(config: Config) -> Result<(), Error> {
 
             // 打印线程
             let print_handle = spawn(async move {
+                let mut out = tokio::io::stdout();
                 while let Some(line) = rx.recv().await {
-                    println!("{}", line);
+                    let _ = out.write_all(line.as_bytes()).await;
+                    let _ = out.flush().await;
                 }
             });
 
