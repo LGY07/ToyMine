@@ -1,9 +1,9 @@
+use anyhow::Error;
 use lazy_static::lazy_static;
 use log::{debug, error};
 use regex::Regex;
 use reqwest::blocking;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
 const VERSION_API_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
@@ -97,13 +97,16 @@ struct VersionJsonServer {
 /// Manifest 下载函数
 impl VersionManifest {
     /// 下载并解析 Mojang 官方的 version_manifest_v2.json
-    pub fn fetch() -> Result<Self, Box<dyn Error>> {
+    pub fn fetch() -> Result<Self, Error> {
         const URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
         // 使用阻塞客户端，简单易用
         let response = reqwest::blocking::get(URL)?;
         if !response.status().is_success() {
-            return Err(format!("Request failed: {}", response.status()).into());
+            return Err(anyhow::Error::msg(format!(
+                "Request failed: {}",
+                response.status()
+            )));
         }
 
         // 直接将响应体反序列化为结构体
@@ -111,22 +114,25 @@ impl VersionManifest {
         Ok(manifest)
     }
     /// 搜索版本
-    pub fn search(&self, name: String) -> Result<ManifestVersion, Box<dyn Error>> {
+    pub fn search(&self, name: String) -> Result<ManifestVersion, Error> {
         for i in self.versions.clone() {
             if i.id == name {
                 return Ok(i);
             }
         }
-        Err(Box::from("Unable to find version"))
+        Err(anyhow::Error::msg("Unable to find version"))
     }
 }
 
 impl ManifestVersion {
     /// 获取服务端下载链接和 SHA1 值，第一个返回值为 URL 第二个为 SHA1
-    pub fn to_download(&self) -> Result<(String, String), Box<dyn Error>> {
+    pub fn to_download(&self) -> Result<(String, String), Error> {
         let response = reqwest::blocking::get(&self.url)?;
         if !response.status().is_success() {
-            return Err(format!("Request failed: {}", response.status()).into());
+            return Err(anyhow::Error::msg(format!(
+                "Request failed: {}",
+                response.status()
+            )));
         }
         let server_download = response.json::<VersionJson>()?;
         Ok((
@@ -159,7 +165,7 @@ impl VersionInfo {
     pub fn get_version_info(
         version_name: &str,
         initial_server_type: ServerType,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, Error> {
         // Other 类型直接返回
         if initial_server_type == ServerType::Other {
             // 对 Other 类型尝试猜测版本类型
@@ -216,9 +222,11 @@ impl VersionInfo {
     /// 查询 Mojang API，根据传入的版本类型返回最新的版本字符串。
     ///
     /// Note: 对于 OldBeta 和 OldAlpha，返回的是 API 列表中对应类型的第一个版本（即最新的）。
-    pub fn get_latest_version(version_type: VersionType) -> Result<String, Box<dyn Error>> {
+    pub fn get_latest_version(version_type: VersionType) -> Result<String, Error> {
         if version_type == VersionType::Unknown {
-            return Err("Cannot find the latest version for an Unknown type.".into());
+            return Err(anyhow::Error::msg(
+                "Cannot find the latest version for an Unknown type.",
+            ));
         }
 
         // 发起 API 请求
@@ -250,11 +258,10 @@ impl VersionInfo {
 
         match latest_id {
             Some(id) => Ok(id),
-            None => Err(format!(
+            None => Err(anyhow::Error::msg(format!(
                 "Could not find any version for type {:?} in the Mojang manifest.",
                 version_type
-            )
-            .into()),
+            ))),
         }
     }
 
@@ -270,7 +277,7 @@ impl VersionInfo {
 
     /// 内部函数：验证 BDS 版本格式 (X.Y.Z.B)，并返回 VersionType
     /// BDS 版本通常是 Release
-    fn validate_bds_format(version_name: &str) -> Result<VersionType, Box<dyn Error>> {
+    fn validate_bds_format(version_name: &str) -> Result<VersionType, Error> {
         lazy_static! {
             // BDS 版本号格式：至少三段，最多四段 (X.Y.Z[.B]，如 1.20.70.21)
             static ref BDS_RE: Regex = Regex::new(r"^\d+\.\d+\.\d+(\.\d+)?$").unwrap();
@@ -281,16 +288,15 @@ impl VersionInfo {
             // 在缺乏 BDS 官方清单的情况下，假设有效格式即为 Release。
             Ok(VersionType::Release)
         } else {
-            Err(format!(
+            Err(anyhow::Error::msg(format!(
                 "Invalid BDS version format (expected X.Y.Z[.B]): {}",
                 version_name
-            )
-            .into())
+            )))
         }
     }
 
     /// 内部函数：验证 Java 版本格式，格式错误则返回错误
-    fn validate_java_format(version_name: &str) -> Result<VersionType, Box<dyn Error>> {
+    fn validate_java_format(version_name: &str) -> Result<VersionType, Error> {
         lazy_static! {
             // 匹配 YYwWWa/b/c 格式 (如 24w08a)
             static ref SNAPSHOT_RE: Regex = Regex::new(r"^\d{2}w\d{2}[a-z]$").unwrap();
@@ -311,11 +317,10 @@ impl VersionInfo {
             // 粗略判断为 OldAlpha
             Ok(VersionType::OldAlpha)
         } else {
-            Err(format!(
+            Err(anyhow::Error::msg(format!(
                 "Invalid JE version format (expected X.Y.Z or YYwWWa): {}",
                 version_name
-            )
-            .into())
+            )))
         }
     }
 }

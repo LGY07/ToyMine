@@ -2,19 +2,18 @@ use crate::project_manager::tools::{
     DEFAULT_DOWNLOAD_THREAD, DOWNLOAD_CACHE_DIR, ServerType, VersionInfo, VersionManifest,
     download_files,
 };
+use anyhow::Error;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::string::String;
 
 /// 安装 Bedrock Edition 服务端
-pub fn install_bds() -> Result<(), Box<dyn Error>> {
+pub fn install_bds() -> Result<(), Error> {
     todo!()
 }
 
 /// 安装 Java Edition 服务端
-pub fn install_je(version: VersionInfo) -> Result<(), Box<dyn Error>> {
+pub fn install_je(version: VersionInfo) -> Result<(), Error> {
     // 下载版本清单
     let manifest = VersionManifest::fetch()?;
     // 获得下载链接
@@ -24,11 +23,11 @@ pub fn install_je(version: VersionInfo) -> Result<(), Box<dyn Error>> {
     // 校验文件
     let file = files
         .first()
-        .ok_or("No files downloaded")?
+        .ok_or(anyhow::Error::msg("No files downloaded"))?
         .as_ref()
-        .map_err(|e| format!("{:?}", e))?;
+        .map_err(|e| anyhow::Error::msg(format!("{:?}", e)))?;
     if file.sha1 != sha1 {
-        return Err(Box::from("SHA1 verification failed"));
+        return Err(anyhow::Error::msg("SHA1 verification failed"));
     }
     // 清理存在的文件
     if Path::new("server.jar").exists() {

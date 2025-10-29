@@ -1,8 +1,8 @@
 use crate::project_manager::config::JavaType;
 use crate::project_manager::tools::{DEFAULT_DOWNLOAD_THREAD, DOWNLOAD_CACHE_DIR, download_files};
+use anyhow::Error;
 use flate2::read::GzDecoder;
 use log::debug;
-use std::error::Error;
 use std::fs;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use tar::Archive;
 use zip::ZipArchive;
 
 /// 自动管理 Java 的情况下，自动下载 Java
-pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), Box<dyn Error>> {
+pub fn prepare_java(edition: JavaType, version: usize) -> Result<(), Error> {
     debug!("Prepare Java");
     let runtime_path = PathBuf::from(format!(
         ".nmsl/runtime/java-{}-{}-{}-{}",
@@ -56,7 +56,7 @@ pub fn check_java(java_home: &Path) -> bool {
 }
 
 /// 下载并安装 GraalVM
-fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
+fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Error> {
     debug!("Prepare GraalVM");
     // 拼接 URL
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
@@ -75,26 +75,26 @@ fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Er
     );
     let files = files_vec
         .first()
-        .ok_or("No files downloaded")?
+        .ok_or(anyhow::Error::msg("No files downloaded"))?
         .as_ref()
-        .map_err(|e| format!("{:?}", e))?;
+        .map_err(|e| anyhow::Error::msg(format!("{:?}", e)))?;
 
     // 校验文件
     debug!("Verify the SHA256 value");
     let client = reqwest::blocking::Client::new();
-    let resp = client
-        .get(format!("{}.sha256", url))
-        .send()
-        .map_err(|e| e.to_string())?;
+    let resp = client.get(format!("{}.sha256", url)).send()?;
     if !resp.status().is_success() {
-        return Err(format!("Request failed: {}", resp.status()).into());
+        return Err(anyhow::Error::msg(format!(
+            "Request failed: {}",
+            resp.status()
+        )));
     }
     let remote_sha = resp.text().unwrap_or_default().trim().to_string();
     if files.sha256 != remote_sha {
-        return Err(Box::from("SHA256 verification failed"));
+        return Err(anyhow::Error::msg("SHA256 verification failed"));
     }
     // 解压文件
-    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
+    fs::create_dir_all(runtime_path)?;
     if extension == "zip" {
         unzip_file(&files.path, runtime_path)?;
     } else {
@@ -105,12 +105,12 @@ fn prepare_graalvm(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Er
     if check_java(runtime_path) {
         Ok(())
     } else {
-        Err(Box::from("Failed to install Runtime"))
+        Err(anyhow::Error::msg("Failed to install Runtime"))
     }
 }
 
 /// 下载并安装 OpenJDK
-fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Error>> {
+fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Error> {
     debug!("Prepare OpenJDK");
     // 拼接 URL，此处使用 Microsoft 构建的 OpenJDK
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
@@ -129,25 +129,25 @@ fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Er
     );
     let files = files_vec
         .first()
-        .ok_or("No files downloaded")?
+        .ok_or(anyhow::Error::msg("No files downloaded"))?
         .as_ref()
-        .map_err(|e| format!("{:?}", e))?;
+        .map_err(|e| anyhow::Error::msg(format!("{:?}", e)))?;
     // 校验文件
     debug!("Verify the SHA256 value");
     let client = reqwest::blocking::Client::new();
-    let resp = client
-        .get(format!("{}.sha256sum.txt", url))
-        .send()
-        .map_err(|e| e.to_string())?;
+    let resp = client.get(format!("{}.sha256sum.txt", url)).send()?;
     if !resp.status().is_success() {
-        return Err(format!("Request failed: {}", resp.status()).into());
+        return Err(anyhow::Error::msg(format!(
+            "Request failed: {}",
+            resp.status()
+        )));
     }
     let remote_sha = resp.text().unwrap_or_default().trim().to_string();
     if files.sha256 != remote_sha.split(' ').collect::<Vec<&str>>()[0].trim() {
-        return Err(Box::from("SHA256 verification failed"));
+        return Err(anyhow::Error::msg("SHA256 verification failed"));
     }
     // 解压文件
-    fs::create_dir_all(runtime_path).map_err(|e| e.to_string())?;
+    fs::create_dir_all(runtime_path)?;
     if extension == "zip" {
         unzip_file(&files.path, runtime_path)?;
     } else {
@@ -158,12 +158,12 @@ fn prepare_openjdk(version: usize, runtime_path: &Path) -> Result<(), Box<dyn Er
     if check_java(runtime_path) {
         Ok(())
     } else {
-        Err(Box::from("Failed to install Runtime"))
+        Err(anyhow::Error::msg("Failed to install Runtime"))
     }
 }
 
 /// 解决解压文件夹内还有文件夹的问题
-fn flatten_runtime_dir(dest_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn flatten_runtime_dir(dest_dir: &Path) -> Result<(), Error> {
     let entries: Vec<_> = fs::read_dir(dest_dir)?.collect::<Result<_, _>>()?;
     if entries.len() == 1 {
         let inner = entries[0].path();
@@ -179,32 +179,32 @@ fn flatten_runtime_dir(dest_dir: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 /// 解压 zip 文件
-fn unzip_file(zip_path: &Path, dest_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn unzip_file(zip_path: &Path, dest_dir: &Path) -> Result<(), Error> {
     debug!("Unzip the ZIP file");
-    let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
-    let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let file = fs::File::open(zip_path)?;
+    let mut archive = ZipArchive::new(file)?;
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        let mut file = archive.by_index(i)?;
         let outpath = dest_dir.join(file.mangled_name());
 
         if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+            fs::create_dir_all(&outpath)?;
         } else {
             if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                fs::create_dir_all(parent)?;
             }
-            let mut outfile = fs::File::create(&outpath).map_err(|e| e.to_string())?;
-            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            let mut outfile = fs::File::create(&outpath)?;
+            std::io::copy(&mut file, &mut outfile)?;
         }
     }
     Ok(())
 }
 
 /// 解压 tar.gz 文件
-fn untar_gz_file(tar_gz_path: &Path, dest_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn untar_gz_file(tar_gz_path: &Path, dest_dir: &Path) -> Result<(), Error> {
     debug!("Unzip the tar.gz file");
-    let tar_gz = fs::File::open(tar_gz_path).map_err(|e| e.to_string())?;
+    let tar_gz = fs::File::open(tar_gz_path)?;
     let tar = GzDecoder::new(BufReader::new(tar_gz));
     let mut archive = Archive::new(tar);
-    archive.unpack(dest_dir).map_err(Box::from)
+    archive.unpack(dest_dir).map_err(anyhow::Error::msg)
 }

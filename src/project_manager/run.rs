@@ -1,21 +1,35 @@
+use crate::Commands;
 use crate::project_manager::Config;
 use crate::project_manager::config::{JavaMode, JavaType};
 use crate::project_manager::tools::{
     ServerType, VersionInfo, analyze_jar, check_java, get_mime_type, install_bds, install_je,
     prepare_java,
 };
+use anyhow::Error;
 use log::debug;
-use std::error::Error;
-use std::fs;
 use std::path::Path;
+use std::process::Command;
+use std::thread::Thread;
+use std::{fs, thread};
+use toml::Value::String;
 
-pub fn start_server(config: Config) -> Result<(), Box<dyn Error>> {
+pub fn start_server(config: Config) -> Result<(), Error> {
     pre_run(&config)?;
+    // 启用备份线程
+    let backup_handle = thread::spawn(|| {});
+    // 启动服务器
+    if let ServerType::BDS = config.project.server_type {
+        // 构建启动参数
+        let command = Command::new(config.project.execute);
+    } else {
+        // 构建启动参数
+        let command = Command::new(config.runtime.java.to_binary()?);
+    }
     todo!()
 }
 
 /// 运行前准备工作
-fn pre_run(config: &Config) -> Result<(), Box<dyn Error>> {
+fn pre_run(config: &Config) -> Result<(), Error> {
     // 准备基岩版
     if let ServerType::BDS = config.project.server_type {
         debug!("Prepare the Bedrock Edition server");
@@ -77,7 +91,7 @@ fn pre_run(config: &Config) -> Result<(), Box<dyn Error>> {
             return if check_java(Path::new(&config.runtime.java.custom)) {
                 Ok(())
             } else {
-                Err(Box::from("The custom Java cannot be used!"))
+                Err(anyhow::Error::msg("The custom Java cannot be used!"))
             };
         } else {
             // 准备 Java

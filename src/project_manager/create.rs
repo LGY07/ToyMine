@@ -6,9 +6,9 @@ use crate::project_manager::info::{ConfigErr, get_info};
 use crate::project_manager::tools::{
     JarInfo, VersionInfo, VersionType, analyze_jar, analyze_je_game, get_mime_type,
 };
+use anyhow::Error;
 use colored::Colorize;
 use log::{error, info, warn};
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -190,12 +190,12 @@ fn create_config_empty() -> Config {
 }
 
 /// 通过已有的 jar 服务端文件创建配置
-fn create_config_jar_file(server_file: PathBuf) -> Result<Config, Box<dyn Error>> {
+fn create_config_jar_file(server_file: PathBuf) -> Result<Config, Error> {
     // 创建基本配置
     let mut new_config = Config::default();
 
     // 解析 jar 文件获得版本信息
-    let version_info = analyze_je_game(&server_file).map_err(|e| format!("{:?}", e))?;
+    let version_info = analyze_je_game(&server_file)?;
     // 设置版本信息
     new_config.project.version = version_info.name.clone();
     new_config.project.server_type = version_info.server_type.clone();

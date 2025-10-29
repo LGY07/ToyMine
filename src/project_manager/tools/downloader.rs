@@ -1,3 +1,4 @@
+use anyhow::Error;
 use futures::future::join_all;
 use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressStyle};
 use log::debug;
@@ -5,7 +6,6 @@ use reqwest::Client;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use std::{
-    error::Error,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -26,7 +26,7 @@ pub fn download_files(
     urls: Vec<String>,
     dir: &str,
     threads: usize,
-) -> Vec<Result<FileDownloadResult, Box<dyn Error + Send + Sync>>> {
+) -> Vec<Result<FileDownloadResult, Error>> {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async { download_files_async(urls, dir, threads).await })
 }
@@ -35,7 +35,7 @@ async fn download_files_async(
     urls: Vec<String>,
     dir: &str,
     threads: usize,
-) -> Vec<Result<FileDownloadResult, Box<dyn Error + Send + Sync>>> {
+) -> Vec<Result<FileDownloadResult, Error>> {
     debug!("Download the files");
     fs::create_dir_all(dir).ok();
     let mp = Arc::new(MultiProgress::new());
@@ -98,7 +98,7 @@ async fn download_files_async(
 
     results
         .into_iter()
-        .map(|r| r.unwrap_or_else(|e| Err(format!("Task failed: {}", e).into())))
+        .map(|r| r.unwrap_or_else(|e| Err(anyhow::Error::msg(format!("Task failed: {}", e)))))
         .collect()
 }
 
@@ -108,7 +108,7 @@ async fn download_single(
     threads: usize,
     mp: Arc<MultiProgress>,
     total_progress: ProgressBar,
-) -> Result<FileDownloadResult, Box<dyn Error + Send + Sync>> {
+) -> Result<FileDownloadResult, Error> {
     let client = Client::builder().use_rustls_tls().build()?;
 
     // 获取文件大小
@@ -116,7 +116,7 @@ async fn download_single(
     let total_size = resp
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)
-        .ok_or("Invalid Content-Length")?
+        .ok_or(anyhow::Error::msg("Invalid Content-Length"))?
         .to_str()?
         .parse::<u64>()?;
 
@@ -173,7 +173,7 @@ async fn download_single(
                 pb.inc(len);
                 total_progress.inc(len);
             }
-            Ok::<(), Box<dyn Error + Send + Sync>>(())
+            Ok::<(), Error>(())
         });
         handles.push(handle);
     }
@@ -182,7 +182,7 @@ async fn download_single(
     for r in join_all(handles).await {
         match r {
             Ok(inner) => inner?,
-            Err(e) => return Err(format!("Join error: {}", e).into()),
+            Err(e) => return Err(anyhow::Error::msg(format!("Join error: {}", e))),
         }
     }
 

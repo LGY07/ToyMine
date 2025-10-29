@@ -1,8 +1,8 @@
 use crate::project_manager::tools::{ServerType, VersionInfo};
+use anyhow::Error;
 use infer;
 use log::debug;
 use regex::Regex;
-use std::error::Error;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -23,7 +23,7 @@ pub fn get_mime_type(path: &Path) -> String {
 }
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
-pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Box<dyn Error>> {
+pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Error> {
     // 打开文件
     let file = File::open(jar_path)?;
     // 读取 zip
@@ -42,7 +42,7 @@ pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Box<dyn Error>> {
             None
         }
     }) {
-        None => return Err(Box::from("Not a Jar file")),
+        None => return Err(anyhow::Error::msg("Not a Jar file")),
         Some(v) => v,
     };
 
@@ -57,13 +57,13 @@ pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Box<dyn Error>> {
 
     // 检查魔术字
     if class_header[0..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
-        return Err(Box::from("Not a Jar file"));
+        return Err(anyhow::Error::msg("Not a Jar file"));
     }
 
     // major version → Java 版本：直接减 45
     let major_version = u16::from_be_bytes([class_header[6], class_header[7]]);
     let java_version = match major_version.checked_sub(44) {
-        None => return Err(Box::from("Not a Jar file")),
+        None => return Err(anyhow::Error::msg("Not a Jar file")),
         Some(v) => v,
     };
 
@@ -74,30 +74,26 @@ pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Box<dyn Error>> {
 }
 
 /// 分析 server.jar 文件，尝试获得游戏版本
-pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
+pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
     // 获取 JarInfo 和读取 Zip 文件
-    let info = analyze_jar(jar_path).map_err(|e| format!("{:?}", e))?;
-    let file = File::open(jar_path).map_err(|e| format!("{:?}", e))?;
+    let info = analyze_jar(jar_path)?;
+    let file = File::open(jar_path)?;
 
     // 谨慎使用 `?` `unwrap()` `expect()`，避免影响后续判断
 
     // 1.18+ 版本获取信息(读取 META-INF/versions.list)
     debug!("analyze_je_game:  Read \"META-INF/versions.list\"");
     // 读取 Jar 文件
-    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    let mut archive = ZipArchive::new(&file)?;
     // 判断主类格式
     if info.main_class == "net.minecraft.bundler.Main"
         || info.main_class == "io.papermc.paperclip.Main"
         || info.main_class == "org.leavesmc.leavesclip.Main"
     {
         // 读取 `META-INF/versions.list`
-        let mut version_file = archive
-            .by_name("META-INF/versions.list")
-            .map_err(|e| format!("{:?}", e))?;
+        let mut version_file = archive.by_name("META-INF/versions.list")?;
         let mut version_list = String::new();
-        version_file
-            .read_to_string(&mut version_list)
-            .map_err(|e| format!("{:?}", e))?;
+        version_file.read_to_string(&mut version_list)?;
 
         // 解析 `META-INF/versions.list`
         // 形如 "2e2867d1c6559bdb660808deaeccb12c9ca41eb04e7b4e2adae87546e1878184	1.21.10	1.21.10/server-1.21.10.jar"
@@ -115,8 +111,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
 
         // 解析版本号
         if info_list.len() == 2 {
-            let version_info = VersionInfo::get_version_info(info_list[1].trim(), server_type)
-                .map_err(|e| format!("{:?}", e))?;
+            let version_info = VersionInfo::get_version_info(info_list[1].trim(), server_type)?;
             return Ok(version_info);
         }
     }
@@ -124,7 +119,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     // 1.14+ 版本获取信息(读取 version.json)
     debug!("analyze_je_game:  Read \"versions.json\"");
     // 读取 Jar 文件
-    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    let mut archive = ZipArchive::new(&file)?;
     // 读取 version.json
     if let Ok(mut file) = archive
         .by_name("version.json")
@@ -132,8 +127,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     {
         // 转换 version.json 为字符串
         let mut version_json_string = String::new();
-        file.read_to_string(&mut version_json_string)
-            .map_err(|e| format!("{:?}", e))?;
+        file.read_to_string(&mut version_json_string)?;
         // 从 json 获得 name 键的值
         // 找到 "name"
         let key = "\"name\"";
@@ -150,8 +144,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
             let end_quote = rest[1..].find('"').expect("Problematic JSON.");
             let version = &rest[1..1 + end_quote];
             // 解析版本号，默认当成 Vanilla
-            let version_info = VersionInfo::get_version_info(version, ServerType::Vanilla)
-                .map_err(|e| format!("{:?}", e))?;
+            let version_info = VersionInfo::get_version_info(version, ServerType::Vanilla)?;
             return Ok(version_info);
         }
     };
@@ -159,7 +152,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     // Paper 服务端尝试获取信息(尝试读取 patch.properties)
     debug!("analyze_je_game:  Read \"patch.properties\"");
     // 读取 Jar 文件
-    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    let mut archive = ZipArchive::new(&file)?;
     // 读取 patch.properties
     if let Ok(mut file) = archive
         .by_name("patch.properties")
@@ -167,8 +160,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     {
         // 转换 patch.properties 为字符串
         let mut properties_string = String::new();
-        file.read_to_string(&mut properties_string)
-            .map_err(|e| format!("{:?}", e))?;
+        file.read_to_string(&mut properties_string)?;
         // 从 ini 获取 version 键的值
         for line in properties_string.lines() {
             // 去掉首尾空白字符
@@ -181,8 +173,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
             if let Some((key, value)) = line.split_once('=') {
                 if let "version" = key.trim() {
                     // 解析版本号
-                    let version_info = VersionInfo::get_version_info(value, ServerType::Paper)
-                        .map_err(|e| format!("{:?}", e))?;
+                    let version_info = VersionInfo::get_version_info(value, ServerType::Paper)?;
                     return Ok(version_info);
                 }
             }
@@ -192,20 +183,18 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     // 其他 Vanilla 版本尝试获取信息(直接读取 MainClass 的字符串常量池)
     debug!("analyze_je_game:  Read string constant pool of MainClass");
     // 读取 Jar 文件
-    let mut archive = ZipArchive::new(&file).map_err(|e| format!("{:?}", e))?;
+    let mut archive = ZipArchive::new(&file)?;
     // 读取 MainClass
-    let mut main_class = archive
-        .by_name(format!("{}.class", info.main_class.replace('.', "/")).as_str())
-        .map_err(|e| format!("{:?}", e))?;
+    let mut main_class =
+        archive.by_name(format!("{}.class", info.main_class.replace('.', "/")).as_str())?;
     // 读取字符串常量池
     let strings = parse_class_strings_from_zip(&mut main_class);
     // 创建正则表达式，假设为 x.x.x
-    let re = Regex::new(r"[0-9]+\.[0-9]+\.[0-9]+").unwrap();
+    let re = Regex::new(r"[0-9]+\.[0-9]+\.[0-9]+")?;
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)
-                .map_err(|e| format!("{:?}", e))?;
+            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)?;
             return Ok(version_info);
         }
     }
@@ -214,13 +203,12 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Box<dyn Error>> {
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)
-                .map_err(|e| format!("{:?}", e))?;
+            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)?;
             return Ok(version_info);
         }
     }
 
-    Err(Box::from(
+    Err(anyhow::Error::msg(
         "Version parsing failed: Version information cannot be found.",
     ))
 }

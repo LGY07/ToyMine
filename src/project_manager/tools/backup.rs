@@ -1,7 +1,10 @@
-use rustic_backend::BackendOptions;
-use rustic_core::{BackupOptions, CheckOptions, ConfigOptions, KeyOptions, LocalDestination, LsOptions, PathList, Repository, RepositoryOptions, RestoreOptions, SnapshotOptions};
-use std::error::Error;
+use anyhow::Error;
 use log::debug;
+use rustic_backend::BackendOptions;
+use rustic_core::{
+    BackupOptions, CheckOptions, ConfigOptions, KeyOptions, LocalDestination, LsOptions, PathList,
+    Repository, RepositoryOptions, RestoreOptions, SnapshotOptions,
+};
 
 /// 默认的缓存目录
 const CACHE_DIR: &str = ".nmsl/cache/backup";
@@ -9,16 +12,16 @@ const CACHE_DIR: &str = ".nmsl/cache/backup";
 const PASSWORD: &str = "";
 
 /// 初始化备份仓库
-pub fn backup_init_repo(path: &str) -> Result<(), Box<dyn Error>> {
+pub fn backup_init_repo(path: &str) -> Result<(), Error> {
     debug!("backup_init_repo : Initialize backup repository");
 
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Init repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+    let repo_opts = RepositoryOptions::default()
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
     let key_opts = KeyOptions::default();
     let config_opts = ConfigOptions::default();
     let _repo = Repository::new(&repo_opts, &backends)?.init(&key_opts, &config_opts)?;
@@ -28,16 +31,16 @@ pub fn backup_init_repo(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 /// 创建快照
-pub fn backup_new_snap(path:&str,tag:&str,source:Vec<&str>) -> Result<(), Box<dyn Error>> {
+pub fn backup_new_snap(path: &str, tag: &str, source: Vec<&str>) -> Result<(), Error> {
     debug!("backup_new_snap : Create new snapshot");
 
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+    let repo_opts = RepositoryOptions::default()
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
 
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?
@@ -45,9 +48,7 @@ pub fn backup_new_snap(path:&str,tag:&str,source:Vec<&str>) -> Result<(), Box<dy
 
     let backup_opts = BackupOptions::default();
     let source = PathList::from_iter(source).sanitize()?;
-    let snap = SnapshotOptions::default()
-        .add_tags(tag)?
-        .to_snapshot()?;
+    let snap = SnapshotOptions::default().add_tags(tag)?.to_snapshot()?;
 
     // Create snapshot
     let snap = repo.backup(&backup_opts, &source, snap)?;
@@ -57,16 +58,16 @@ pub fn backup_new_snap(path:&str,tag:&str,source:Vec<&str>) -> Result<(), Box<dy
 }
 
 /// 检查仓库
-pub fn backup_check_repo(path:&str) -> Result<(), Box<dyn Error>> {
+pub fn backup_check_repo(path: &str) -> Result<(), Error> {
     debug!("backup_check_repo : Check backup repository");
 
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+    let repo_opts = RepositoryOptions::default()
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?.open()?;
 
     // Check repository with standard options but omitting cache checks
@@ -76,16 +77,16 @@ pub fn backup_check_repo(path:&str) -> Result<(), Box<dyn Error>> {
 }
 
 /// 恢复快照
-pub fn backup_restore_snap(path:&str,snap:&str,destination:&str) -> Result<(), Box<dyn Error>> {
+pub fn backup_restore_snap(path: &str, snap: &str, destination: &str) -> Result<(), Error> {
     debug!("backup_restore_snap : Restore a snapshot");
 
     // Initialize Backends
-    let backends = BackendOptions::default()
-        .repository(path)
-        .to_backends()?;
+    let backends = BackendOptions::default().repository(path).to_backends()?;
 
     // Open repository
-    let repo_opts = RepositoryOptions::default().cache_dir(CACHE_DIR).password(PASSWORD);
+    let repo_opts = RepositoryOptions::default()
+        .cache_dir(CACHE_DIR)
+        .password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?
         .to_indexed()?;

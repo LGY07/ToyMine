@@ -1,9 +1,11 @@
+use crate::project_manager::tools::check_java;
 pub(crate) use crate::project_manager::tools::{ServerType, VersionType};
+use anyhow::Error;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// 实例配置文件
 #[derive(Debug, Deserialize, Serialize)]
@@ -335,6 +337,23 @@ impl Display for JavaType {
             JavaType::GraalVM => write!(f, "graalvm"),
             JavaType::OpenJDK => write!(f, "openjdk"),
             JavaType::Custom => write!(f, "custom"),
+        }
+    }
+}
+
+impl Java {
+    pub fn to_binary(&self) -> Result<PathBuf, Error> {
+        let runtime_path = PathBuf::from(format!(
+            ".nmsl/runtime/java-{}-{}-{}-{}",
+            &self.version,
+            &self.edition,
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+        if check_java(&runtime_path) {
+            Ok(PathBuf::from(runtime_path))
+        } else {
+            Err(Error::msg("Java cannot be found"))
         }
     }
 }
