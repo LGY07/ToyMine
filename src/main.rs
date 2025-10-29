@@ -6,8 +6,8 @@ use colored::Colorize;
 use log::{LevelFilter, error};
 use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use tokio::spawn;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -131,4 +131,5 @@ fn main() {
     }
 
     // TODO:运行清理
+    std::io::stdout().flush().unwrap()
 }

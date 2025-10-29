@@ -5,6 +5,7 @@ use crate::project_manager::tools::{
     prepare_java,
 };
 use anyhow::Error;
+use chrono::Utc;
 use futures::future::join_all;
 use log::{debug, error, info, warn};
 use std::path::Path;
@@ -13,30 +14,31 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{env, fs};
 use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{signal, spawn};
 
 pub fn start_server(config: Config) -> Result<(), Error> {
     pre_run(&config)?;
 
-    // 创建停止信号
     let stop_flag = Arc::new(AtomicBool::new(false));
     let stop_flag_clone = stop_flag.clone();
 
-    // 创建 runtime
     let rt = Runtime::new()?;
 
     rt.block_on(async move {
         let mut handles: Vec<JoinHandle<Result<(), Error>>> = vec![];
 
-        // 启动备份线程
+        // backup 线程
         if config.backup.enable {
             let stop = stop_flag.clone();
             handles.push(spawn(async move {
-                info!("Backup task running...");
+                info!("Backup task enabled");
                 while !stop.load(Ordering::SeqCst) {
+                    debug!("Backup task running...");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
                 info!("Backup task stopping...");
@@ -44,19 +46,15 @@ pub fn start_server(config: Config) -> Result<(), Error> {
             }));
         }
 
-        // 启动服务器线程
+        // 服务器线程
         let stop = stop_flag.clone();
         handles.push(spawn(async move {
-            use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-            use tokio::process::Command;
-            use tokio::sync::mpsc;
-
             // 创建 channel
             let (tx, mut rx) = mpsc::channel::<String>(100);
 
-            // 启动服务端
             let mut child = if let ServerType::BDS = config.project.server_type {
                 // BDS
+                info!("Server starting...");
                 Command::new(&config.project.execute)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
@@ -71,6 +69,7 @@ pub fn start_server(config: Config) -> Result<(), Error> {
                 if config.runtime.java.xmx != 0 {
                     mem_options.push(format!("-Xmx{}M", config.runtime.java.xmx));
                 }
+                info!("Server starting...");
                 Command::new(config.runtime.java.to_binary()?)
                     .args(&config.runtime.java.arguments)
                     .args(mem_options)
@@ -83,64 +82,65 @@ pub fn start_server(config: Config) -> Result<(), Error> {
                     .spawn()?
             };
 
-            // 包装 stdin/log 文件
+            // stdin/log 文件包装
             let child_stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
-            let stdout_log = Arc::new(Mutex::new(
+
+            let stdout_file = Arc::new(Mutex::new(
                 OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(format!(
                         ".nmsl/log/stdout-{}.log",
-                        chrono::Utc::now().to_rfc3339()
+                        Utc::now().format("%Y-%m-%d_%H-%M-%S")
                     ))
                     .await?,
             ));
-            let stderr_log = Arc::new(Mutex::new(
+
+            let stderr_file = Arc::new(Mutex::new(
                 OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(format!(
                         ".nmsl/log/stderr-{}.log",
-                        chrono::Utc::now().to_rfc3339()
+                        Utc::now().format("%Y-%m-%d_%H-%M-%S")
                     ))
                     .await?,
             ));
 
-            // clone IO
             let stdout = child.stdout.take().unwrap();
             let stderr = child.stderr.take().unwrap();
 
-            // stdout 处理
+            // stdout -> tx + stdout.log
             let tx_stdout = tx.clone();
-            let stdout_log_clone = stdout_log.clone();
+            let stdout_file_clone = stdout_file.clone();
             let stdout_handle = spawn(async move {
                 let mut reader = BufReader::new(stdout);
                 let mut line = String::new();
                 while reader.read_line(&mut line).await? > 0 {
                     let _ = tx_stdout.send(line.clone()).await;
-                    let mut file = stdout_log_clone.lock().await;
-                    file.write_all(line.as_bytes()).await?;
+                    let mut f = stdout_file_clone.lock().await;
+                    f.write_all(line.as_bytes()).await?;
                     line.clear();
                 }
                 Ok::<(), Error>(())
             });
 
-            // stderr 处理
+            // stderr -> tx + stderr.log
             let tx_stderr = tx.clone();
-            let stderr_log_clone = stderr_log.clone();
+            let stderr_file_clone = stderr_file.clone();
             let stderr_handle = spawn(async move {
                 let mut reader = BufReader::new(stderr);
                 let mut line = String::new();
                 while reader.read_line(&mut line).await? > 0 {
                     let _ = tx_stderr.send(line.clone()).await;
-                    let mut file = stderr_log_clone.lock().await;
-                    file.write_all(line.as_bytes()).await?;
+                    let mut f = stderr_file_clone.lock().await;
+                    f.write_all(line.as_bytes()).await?;
                     line.clear();
                 }
                 Ok::<(), Error>(())
             });
 
-            // stdin 处理
+            // stdin -> 子进程 stdin
             let child_stdin_clone = child_stdin.clone();
             let stop_clone = stop_flag_clone.clone();
             let stdin_handle = spawn(async move {
@@ -163,49 +163,45 @@ pub fn start_server(config: Config) -> Result<(), Error> {
                 }
             });
 
-            // 循环监控停止信号
+            // 等待 stop
             while !stop.load(Ordering::SeqCst) {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
 
-            // 收到停止信号
             info!("Stopping server...");
 
-            // 先发送 "stop" 命令到服务器 stdin
-            let mut stdin = child_stdin.lock().await;
-            let _ = stdin.write_all(b"stop\n").await;
-            let _ = stdin.flush().await;
+            // 先发送 stop
+            {
+                let mut stdin = child_stdin.lock().await;
+                let _ = stdin.write_all(b"stop\n").await;
+                let _ = stdin.flush().await;
+            }
 
-            // 等待服务器自行退出
+            // 等待服务器退出或超时 kill
             match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await {
-                Ok(Ok(_status)) => info!("Server exited gracefully."),
+                Ok(Ok(_)) => info!("Server exited gracefully."),
                 Ok(Err(e)) => error!("Error waiting for server exit: {}", e),
                 Err(_) => {
-                    // 超时则强制 kill
                     warn!("Server did not exit in 10s, killing...");
                     let _ = child.kill().await;
                     let _ = child.wait().await;
                 }
             }
 
-            // 等待所有任务完成
+            // 等待所有线程完成
             let _ = stdout_handle.await?;
             let _ = stderr_handle.await?;
             let _ = stdin_handle.await?;
-            drop(tx); // 关闭 channel
+            drop(tx);
             let _ = print_handle.await;
 
             Ok(())
         }));
 
-        // 等待 Ctrl+C 信号
-        tokio::select! {
-            _ = join_all(&mut handles) => {},
-            _ = signal::ctrl_c() => {
-                info!("Ctrl+C received, setting stop flag...");
-                stop_flag.store(true, Ordering::SeqCst);
-            }
-        }
+        // Ctrl+C 信号
+        signal::ctrl_c().await?;
+        info!("Ctrl+C received, setting stop flag...");
+        stop_flag.store(true, Ordering::SeqCst);
 
         // 等待所有任务完成
         let results = join_all(handles).await;
