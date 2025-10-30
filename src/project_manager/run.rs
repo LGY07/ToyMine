@@ -260,7 +260,6 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
                 move || {
                     let config = Arc::clone(&config); // async move 闭包内部再 clone
                     async move {
-                        debug!("Cron job executed at: {}", Local::now());
                         let _ = run_backup("Corn", config.backup.world, config.backup.other).await;
                     }
                 }
@@ -281,7 +280,6 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
             let config = Arc::clone(&config);
             let time_backup_handle: JoinHandle<Result<(), Error>> = spawn(async move {
                 loop {
-                    debug!("Interval backup running");
                     run_backup("Interval", config.backup.world, config.backup.other).await?;
                     tokio::time::sleep(std::time::Duration::from_secs(
                         config.backup.time.as_ref().unwrap().interval as u64,
@@ -303,12 +301,6 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
     if config.backup.event.is_some() && config.backup.event.as_ref().unwrap().stop {
         info!("Backup is enabled at stop");
         run_backup("Stop", config.backup.world, config.backup.other).await?;
-        if config.backup.world {
-            warn!("todo")
-        }
-        if config.backup.other {
-            warn!("todo")
-        }
     }
     info!("Backup task stopping...");
     join_all(backup_handles).await;
@@ -317,6 +309,7 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
 
 /// 运行备份
 async fn run_backup(tag: &str, world: bool, other: bool) -> Result<(), Error> {
+    debug!("{} backup job executed at: {}", tag, Local::now());
     let mut handles = vec![];
     let tag_arc = Arc::new(tag.to_string());
     if world {
