@@ -1,6 +1,6 @@
 use crate::project_manager::Config;
 use crate::project_manager::config::{JavaMode, JavaType};
-use crate::project_manager::tools::backup::{backup_check_repo, backup_init_repo};
+use crate::project_manager::tools::backup::{backup_check_repo, backup_init_repo, backup_new_snap};
 use crate::project_manager::tools::{
     ServerType, VersionInfo, analyze_jar, check_java, get_mime_type, install_bds, install_je,
     prepare_java,
@@ -22,6 +22,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{signal, spawn};
+
+const BACKUP_WORLD_DIR: &str = ".nmsl/backup/world/";
+const BACKUP_OTHER_DIR: &str = ".nmsl/backup/other/";
 
 /// 启动服务器
 pub fn start_server(config: Config) -> Result<(), Error> {
@@ -226,46 +229,60 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
 
 /// 备份线程
 async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(), Error> {
+    let mut backup_handles = vec![];
     info!("Backup task enabled");
     // 初始化仓库
-    if backup_check_repo(".nmsl/backup/world").is_err() {
-        backup_init_repo(".nmsl/backup/world")?
+    if backup_check_repo(BACKUP_WORLD_DIR).is_err() {
+        backup_init_repo(BACKUP_WORLD_DIR)?
     }
-    if backup_check_repo(".nmsl/backup/other").is_err() {
-        backup_init_repo(".nmsl/backup/other")?
+    if backup_check_repo(BACKUP_OTHER_DIR).is_err() {
+        backup_init_repo(BACKUP_OTHER_DIR)?
     }
     // 启动时备份
     if config.backup.event.is_some() && config.backup.event.as_ref().unwrap().start {
-        info!("Backup is enabled at start")
-        // TODO：执行备份操作
+        info!("Backup is enabled at start");
+        backup_handles.push(spawn(run_backup(
+            "Start",
+            config.backup.world,
+            config.backup.other,
+        )))
     }
     // 时间备份
     if config.backup.time.is_some() {
         if !config.backup.time.as_ref().unwrap().cron.is_empty() {
             info!("Cron backup enabled");
+            // 配置 Cron 备份
             let local_tz = Local::from_offset(&FixedOffset::east_opt(7).unwrap());
             let mut cron = AsyncCron::new(local_tz);
-            cron.add_fn(config.backup.time.as_ref().unwrap().cron.trim(), || async {
-                debug!("Corn job executed at: {}", Local::now());
-                // TODO：执行备份操作
+            let config = Arc::clone(&config); // 原始 Arc 不动
+            cron.add_fn(config.backup.time.as_ref().unwrap().cron.trim(), {
+                let config = Arc::clone(&config); // clone 一份给闭包
+                move || {
+                    let config = Arc::clone(&config); // async move 闭包内部再 clone
+                    async move {
+                        debug!("Cron job executed at: {}", Local::now());
+                        let _ = run_backup("Corn", config.backup.world, config.backup.other).await;
+                    }
+                }
             })
             .await?;
-            // 开始计划备份
+            // 开始 Cron 备份
             cron.start().await;
             while !stop.load(Ordering::SeqCst) {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
-            // 停止计划备份
+            // 停止 Cron 备份
             cron.stop().await
         }
         if config.backup.time.as_ref().unwrap().interval != 0 {
             info!("Interval backup enabled");
+            // 开始间隔备份
             let stop = stop.clone();
             let config = Arc::clone(&config);
-            let time_backup_handle = spawn(async move {
+            let time_backup_handle: JoinHandle<Result<(), Error>> = spawn(async move {
                 loop {
                     debug!("Interval backup running");
-                    // TODO：执行备份操作
+                    run_backup("Interval", config.backup.world, config.backup.other).await?;
                     tokio::time::sleep(std::time::Duration::from_secs(
                         config.backup.time.as_ref().unwrap().interval as u64,
                     ))
@@ -284,10 +301,53 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
     }
     // 停止时备份
     if config.backup.event.is_some() && config.backup.event.as_ref().unwrap().stop {
-        info!("Backup is enabled at stop")
-        // TODO：执行备份操作
+        info!("Backup is enabled at stop");
+        run_backup("Stop", config.backup.world, config.backup.other).await?;
+        if config.backup.world {
+            warn!("todo")
+        }
+        if config.backup.other {
+            warn!("todo")
+        }
     }
     info!("Backup task stopping...");
+    join_all(backup_handles).await;
+    Ok(())
+}
+
+/// 运行备份
+async fn run_backup(tag: &str, world: bool, other: bool) -> Result<(), Error> {
+    let mut handles = vec![];
+    let tag_arc = Arc::new(tag.to_string());
+    if world {
+        let tag = Arc::clone(&tag_arc);
+        handles.push(spawn(async move {
+            // 运行备份
+            backup_new_snap(BACKUP_WORLD_DIR, tag.as_ref(), vec!["world".parse()?])?;
+            Ok::<(), Error>(())
+        }))
+    }
+    if other {
+        let tag = Arc::clone(&tag_arc);
+        handles.push(spawn(async move {
+            // 构建路径列表
+            let mut dir_list = tokio::fs::read_dir(env::current_dir()?).await?;
+            let mut path_list = Vec::new();
+            while let Some(entry) = dir_list.next_entry().await? {
+                let path = entry.path();
+                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                    // 排除目录
+                    if file_name != ".nmsl" && file_name != "world" {
+                        path_list.push(path);
+                    }
+                }
+            }
+            // 运行备份
+            backup_new_snap(BACKUP_OTHER_DIR, tag.as_ref(), path_list)?;
+            Ok::<(), Error>(())
+        }))
+    }
+    join_all(handles).await;
     Ok(())
 }
 

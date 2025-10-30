@@ -5,6 +5,7 @@ use rustic_core::{
     BackupOptions, CheckOptions, ConfigOptions, KeyOptions, LocalDestination, LsOptions, PathList,
     Repository, RepositoryOptions, RestoreOptions, SnapshotOptions,
 };
+use std::path::PathBuf;
 
 /// 默认的缓存目录
 const CACHE_DIR: &str = ".nmsl/cache/backup";
@@ -31,7 +32,7 @@ pub fn backup_init_repo(path: &str) -> Result<(), Error> {
 }
 
 /// 创建快照
-pub fn backup_new_snap(path: &str, tag: &str, source: Vec<&str>) -> Result<(), Error> {
+pub fn backup_new_snap(path: &str, tag: &str, source: Vec<PathBuf>) -> Result<(), Error> {
     debug!("backup_new_snap : Create new snapshot");
 
     // Initialize Backends
