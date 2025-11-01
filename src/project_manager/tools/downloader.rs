@@ -1,3 +1,4 @@
+use crate::project_manager::MAX_RETRIES;
 use anyhow::Error;
 use futures::future::join_all;
 use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -13,12 +14,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::task;
-
-const MAX_RETRIES: usize = 3; // 每个分块最大重试次数
-
-fn progress_bar_width() -> usize {
-    50 // 可根据终端宽度自适应
-}
 
 #[derive(Debug)]
 pub struct FileDownloadResult {
@@ -245,4 +240,13 @@ async fn download_single(
         sha256: hex::encode(sha256.finalize()),
         sha1: hex::encode(sha1.finalize()),
     })
+}
+
+/// 终端宽度
+fn progress_bar_width() -> usize {
+    if let Some((width, _)) = term_size::dimensions() {
+        width
+    } else {
+        50
+    }
 }

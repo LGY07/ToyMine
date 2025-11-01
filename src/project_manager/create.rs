@@ -1,8 +1,11 @@
 use crate::project_manager::config::ServerType;
 use crate::project_manager::info::{ConfigErr, get_info};
-use crate::project_manager::tools::{VersionInfo, VersionType, analyze_je_game, get_mime_type};
+use crate::project_manager::tools::{
+    PaperProject, VersionInfo, VersionType, analyze_je_game, get_mime_type,
+};
 use crate::project_manager::{
-    BACKUP_DIR, CACHE_DIR, CONFIG_FILE, Config, LOG_DIR, RUNTIME_DIR, WORK_DIR,
+    BACKUP_DIR, CACHE_DIR, CONFIG_FILE, Config, FOLIA_PROJECT_API, LEAVES_PROJECT_API, LOG_DIR,
+    PAPER_PROJECT_API, PURPUR_PROJECT_API, RUNTIME_DIR, WORK_DIR,
 };
 use anyhow::Error;
 use colored::Colorize;
@@ -157,8 +160,36 @@ fn create_config_empty() -> Config {
 
                 // version_type 默认已经为 Release
                 // 获取最新版本
-                new_config.project.version = VersionInfo::get_latest_version(VersionType::Release)
-                    .expect("Failed to get the latest version");
+                new_config.project.version = match new_config.project.server_type {
+                    ServerType::Vanilla => VersionInfo::get_latest_version(VersionType::Release)
+                        .expect("Failed to get the latest version"),
+                    ServerType::Paper => PaperProject::fetch(PAPER_PROJECT_API)
+                        .expect("Failed to get the latest version")
+                        .versions
+                        .last()
+                        .expect("Failed to get the latest version")
+                        .to_string(),
+                    ServerType::Folia => PaperProject::fetch(FOLIA_PROJECT_API)
+                        .expect("Failed to get the latest version")
+                        .versions
+                        .last()
+                        .expect("Failed to get the latest version")
+                        .to_string(),
+                    ServerType::Purpur => PaperProject::fetch(PURPUR_PROJECT_API)
+                        .expect("Failed to get the latest version")
+                        .versions
+                        .last()
+                        .expect("Failed to get the latest version")
+                        .to_string(),
+                    ServerType::Leaves => PaperProject::fetch(LEAVES_PROJECT_API)
+                        .expect("Failed to get the latest version")
+                        .versions
+                        .last()
+                        .expect("Failed to get the latest version")
+                        .to_string(),
+                    ServerType::Other => String::new(),
+                    _ => unreachable!("不存在的服务端类型"),
+                };
                 // 成功设置
                 break;
             } else {

@@ -1,4 +1,4 @@
-use crate::project_manager::CACHE_DIR;
+use crate::project_manager::{CACHE_DIR, PASSWORD};
 use anyhow::Error;
 use log::debug;
 use rustic_backend::BackendOptions;
@@ -7,9 +7,6 @@ use rustic_core::{
     Repository, RepositoryOptions, RestoreOptions, SnapshotOptions,
 };
 use std::path::PathBuf;
-
-/// 默认的备份密码，无意义，所以用空字符串
-const PASSWORD: &str = "";
 
 /// 初始化备份仓库
 pub fn backup_init_repo(path: &str) -> Result<(), Error> {

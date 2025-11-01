@@ -1,6 +1,6 @@
 use crate::project_manager::config::JavaType;
-use crate::project_manager::tools::{DEFAULT_DOWNLOAD_THREAD, download_files};
-use crate::project_manager::{CACHE_DIR, RUNTIME_DIR};
+use crate::project_manager::tools::download_files;
+use crate::project_manager::{CACHE_DIR, DEFAULT_DOWNLOAD_THREAD, RUNTIME_DIR};
 use anyhow::Error;
 use flate2::read::GzDecoder;
 use log::debug;

@@ -380,7 +380,7 @@ fn pre_run(config: &Config) -> Result<(), Error> {
     }
     // 准备 Java 版
     debug!("Prepare the Java Edition server");
-    let jar_version = analyze_jar(Path::new(&config.project.execute));
+    let jar_version = analyze_jar(Path::new(&config.project.execute)); //仅判断服务端是否可用，不主动更改版本
     if jar_version.is_err() {
         // 备份有问题的文件/目录
         if Path::new(&config.project.execute).exists() {

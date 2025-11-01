@@ -1,10 +1,9 @@
+use crate::project_manager::VERSION_API_URL;
 use anyhow::Error;
 use lazy_static::lazy_static;
 use log::error;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-
-const VERSION_API_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
 /// 可选的服务端类型
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -97,10 +96,7 @@ struct VersionJsonServer {
 impl VersionManifest {
     /// 下载并解析 Mojang 官方的 version_manifest_v2.json
     pub fn fetch() -> Result<Self, Error> {
-        const URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
-
-        // 使用阻塞客户端，简单易用
-        let response = reqwest::blocking::get(URL)?;
+        let response = reqwest::blocking::get(VERSION_API_URL)?;
         if !response.status().is_success() {
             return Err(Error::msg(format!("Request failed: {}", response.status())));
         }
@@ -315,6 +311,30 @@ impl VersionInfo {
                 version_name
             )))
         }
+    }
+}
+
+/// 用于解析 Paper API Project 的 JSON
+#[derive(Debug, Deserialize)]
+pub struct PaperProject {
+    project_id: String,
+    project_name: String,
+    version_groups: Vec<String>,
+    pub(crate) versions: Vec<String>,
+}
+
+impl PaperProject {
+    /// 访问 Paper API
+    pub fn fetch(url: &str) -> Result<Self, Error> {
+        let client = reqwest::blocking::Client::new();
+        let resp = client.get(url).send()?;
+
+        if !resp.status().is_success() {
+            return Err(Error::msg("Request failed"));
+        }
+
+        let project = resp.json::<Self>()?;
+        Ok(project)
     }
 }
 
