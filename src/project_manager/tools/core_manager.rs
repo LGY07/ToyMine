@@ -1,4 +1,5 @@
 use crate::project_manager::config::ServerType;
+use crate::project_manager::tools::downloader::download_file_single_thread;
 use crate::project_manager::tools::version_parser::PaperProject;
 use crate::project_manager::tools::{VersionInfo, VersionManifest, download_files};
 use crate::project_manager::{
@@ -6,7 +7,7 @@ use crate::project_manager::{
     PURPUR_PROJECT_API,
 };
 use anyhow::Error;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -115,24 +116,20 @@ fn paper_like(project_api: &str, version: String) -> Result<(), Error> {
             return Err(Error::msg("Request failed"));
         }
         let download_info = response.json::<PaperBuild>()?.downloads.application;
-        // 下载文件
-        let files = download_files(
-            vec![format!(
+        // 下载文件，长度未知，使用单线程下载
+        let files = download_file_single_thread(
+            format!(
                 "{}/versions/{}/builds/{}/downloads/{}",
                 project_api,
                 version,
                 builds.builds.last().expect("No build is available"),
                 download_info.name
-            )],
+            )
+            .as_str(),
             format!("{}/download", CACHE_DIR).as_str(),
-            DEFAULT_DOWNLOAD_THREAD,
         );
         // 校验文件
-        let file = files
-            .first()
-            .ok_or(Error::msg("No files downloaded"))?
-            .as_ref()
-            .map_err(|e| Error::msg(format!("{:?}", e)))?;
+        let file = files.map_err(|e| Error::msg(format!("{:?}", e)))?;
         if file.sha256 != download_info.sha256 {
             return Err(Error::msg("SHA256 verification failed"));
         }

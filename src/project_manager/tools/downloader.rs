@@ -3,7 +3,7 @@ use anyhow::Error;
 use futures::future::join_all;
 use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use log::{debug, info};
-use reqwest::Client;
+use reqwest::{Client, blocking};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use std::{
@@ -23,6 +23,7 @@ pub struct FileDownloadResult {
     pub sha1: String,
 }
 
+/// 多线程下载文件
 pub fn download_files(
     urls: Vec<String>,
     dir: &str,
@@ -30,6 +31,54 @@ pub fn download_files(
 ) -> Vec<Result<FileDownloadResult, Error>> {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(download_files_async(urls, dir, threads))
+}
+
+/// 单线程下载文件
+pub fn download_file_single_thread(url: &str, dir: &str) -> Result<FileDownloadResult, Error> {
+    // 创建目录
+    std::fs::create_dir_all(dir)?;
+
+    let filename = url.split('/').last().unwrap_or("file");
+    let filepath = Path::new(dir).join(filename);
+
+    let client = blocking::Client::builder().build()?;
+    let mut resp = client.get(url).send()?.error_for_status()?;
+
+    // 创建文件
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&filepath)?;
+
+    // 进度条，未知总长度
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::with_template("{msg} [{spinner}] {bytes}")?);
+    pb.set_message(filename.to_string());
+
+    let mut sha256 = Sha256::new();
+    let mut sha1 = Sha1::new();
+    let mut buf = [0u8; 8192];
+
+    loop {
+        let n = resp.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])?;
+        sha256.update(&buf[..n]);
+        sha1.update(&buf[..n]);
+        pb.inc(n as u64);
+    }
+
+    pb.finish_with_message(format!("{} done", filename));
+
+    Ok(FileDownloadResult {
+        url: url.to_string(),
+        path: filepath,
+        sha256: hex::encode(sha256.finalize()),
+        sha1: hex::encode(sha1.finalize()),
+    })
 }
 
 async fn download_files_async(

@@ -25,7 +25,13 @@ use tokio::{signal, spawn};
 
 /// 启动服务器
 pub fn start_server(config: Config) -> Result<(), Error> {
-    pre_run(&config)?;
+    match pre_run(&config) {
+        Ok(_) => (),
+        Err(e) => {
+            error!("{}", e);
+            return Err(e);
+        }
+    }
 
     let config = Arc::new(config);
     let stop_flag = Arc::new(AtomicBool::new(false));
