@@ -10,16 +10,16 @@ use chrono::{FixedOffset, Local, TimeZone, Utc};
 use cron_tab::AsyncCron;
 use futures::future::join_all;
 use log::{debug, error, info, warn};
+use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{env, fs};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::runtime::Runtime;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, Notify, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{signal, spawn};
 
@@ -34,7 +34,7 @@ pub fn start_server(config: Config) -> Result<(), Error> {
     }
 
     let config = Arc::new(config);
-    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_flag = Arc::new(Notify::new());
 
     // 以下开始异步🤯
     let rt = Runtime::new()?;
@@ -52,13 +52,13 @@ pub fn start_server(config: Config) -> Result<(), Error> {
         // Ctrl+C 信号
         signal::ctrl_c().await?;
         info!("Ctrl+C received, setting stop flag...");
-        stop_flag.store(true, Ordering::SeqCst);
+        stop_flag.notify_waiters();
 
         // 等待所有任务完成
         let results = join_all(handles).await;
         for r in results {
             match r {
-                Ok(Ok(())) => (),
+                Ok(Ok(())) => info!("Server exited successfully."),
                 Ok(Err(e)) => error!("Task error: {}", e),
                 Err(e) => error!("Join error: {}", e),
             }
@@ -71,7 +71,7 @@ pub fn start_server(config: Config) -> Result<(), Error> {
 }
 
 /// 服务器线程
-async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(), Error> {
+async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
     let config = Arc::clone(&config);
     // 创建 channel
     let (tx, mut rx) = mpsc::channel::<String>(100);
@@ -139,14 +139,22 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
     // stdout -> tx + stdout.log
     let tx_stdout = tx.clone();
     let stdout_file_clone = stdout_file.clone();
+    let stop_clone = Arc::clone(&stop);
     let stdout_handle = spawn(async move {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         while reader.read_line(&mut line).await? > 0 {
-            let _ = tx_stdout.send(line.clone()).await;
-            let mut f = stdout_file_clone.lock().await;
-            f.write_all(line.as_bytes()).await?;
-            line.clear();
+            tokio::select! {
+                _ = stop_clone.notified() => {
+                    break;
+                }
+                _ = async {
+                    let _ = tx_stdout.send(line.clone()).await;
+                    let mut f = stdout_file_clone.lock().await;
+                    let _ = f.write_all(line.as_bytes()).await;
+                    line.clear();
+                } => {}
+            }
         }
         Ok::<(), Error>(())
     });
@@ -154,14 +162,22 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
     // stderr -> tx + stderr.log
     let tx_stderr = tx.clone();
     let stderr_file_clone = stderr_file.clone();
+    let stop_clone = Arc::clone(&stop);
     let stderr_handle = spawn(async move {
         let mut reader = BufReader::new(stderr);
         let mut line = String::new();
         while reader.read_line(&mut line).await? > 0 {
-            let _ = tx_stderr.send(line.clone()).await;
-            let mut f = stderr_file_clone.lock().await;
-            f.write_all(line.as_bytes()).await?;
-            line.clear();
+            tokio::select! {
+                _ = stop_clone.notified() => {
+                    break;
+                }
+                _ = async {
+                    let _ = tx_stderr.send(line.clone()).await;
+                    let mut f = stderr_file_clone.lock().await;
+                    let _ = f.write_all(line.as_bytes()).await;
+                    line.clear();
+                } => {}
+            }
         }
         Ok::<(), Error>(())
     });
@@ -173,35 +189,47 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
         let mut stdin = tokio::io::stdin();
         let mut buf = [0u8; 1024];
 
-        while !stop_clone.load(Ordering::SeqCst) {
-            match stdin.read(&mut buf).await {
-                Ok(n) if n > 0 => {
-                    let mut child_stdin = child_stdin_clone.lock().await;
-                    let _ = child_stdin.write_all(&buf[..n]).await;
+        loop {
+            tokio::select! {
+                _ = stop_clone.notified() => {
+                    break;
                 }
-                _ => {
-                    // 没有输入就稍微休眠，避免忙循环
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                _ = async {
+                    match stdin.read(&mut buf).await {
+                    Ok(n) if n > 0 => {
+                        let mut child_stdin = child_stdin_clone.lock().await;
+                        let _ = child_stdin.write_all(&buf[..n]).await;
+                    }
+                    _ => {
+                        // 没有输入就稍微休眠，避免忙循环
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
                 }
+                } => {}
             }
         }
         Ok::<(), Error>(())
     });
 
     // 打印线程
+    let stop_clone = Arc::clone(&stop);
     let print_handle = spawn(async move {
         let mut out = tokio::io::stdout();
         while let Some(line) = rx.recv().await {
-            let _ = out.write_all(line.as_bytes()).await;
-            let _ = out.flush().await;
+            tokio::select! {
+                _ = stop_clone.notified() => {
+                    break;
+                }
+                _ = async {
+                    let _ = out.write_all(line.as_bytes()).await;
+                    let _ = out.flush().await;
+                } => {}
+            }
         }
     });
 
     // 等待 stop
-    while !stop.load(Ordering::SeqCst) {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
-
+    stop.notified().await;
     info!("Stopping server...");
 
     // 先发送 stop
@@ -213,7 +241,7 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
 
     // 等待服务器退出或超时 kill
     match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await {
-        Ok(Ok(_)) => info!("Server exited gracefully. Press Enter to exit"),
+        Ok(Ok(_)) => info!("Server exited gracefully."),
         Ok(Err(e)) => error!("Error waiting for server exit: {}", e),
         Err(_) => {
             warn!("Server did not exit in 10s, killing...");
@@ -233,7 +261,7 @@ async fn server_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
 }
 
 /// 备份线程
-async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(), Error> {
+async fn backup_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
     let mut backup_handles = vec![];
     info!("Backup task enabled");
     // 初始化仓库
@@ -271,9 +299,8 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
             .await?;
             // 开始 Cron 备份
             cron.start().await;
-            while !stop.load(Ordering::SeqCst) {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
+            // 等待 Stop
+            stop.notified().await;
             // 停止 Cron 备份
             cron.stop().await
         }
@@ -291,23 +318,23 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<AtomicBool>) -> Result<(),
                     .await
                 }
             });
-            while !stop.load(Ordering::SeqCst) {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
+            // 等待 Stop
+            stop.notified().await;
             // 停止时间备份
             time_backup_handle.abort()
         }
     }
-    while !stop.load(Ordering::SeqCst) {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
+    // 等待 Stop
+    stop.notified().await;
     // 停止时备份
     if config.backup.event.is_some() && config.backup.event.as_ref().unwrap().stop {
         info!("Backup is enabled at stop");
         run_backup("Stop", config.backup.world, config.backup.other).await?;
     }
     info!("Backup task stopping...");
-    join_all(backup_handles).await;
+    for i in backup_handles {
+        i.abort()
+    }
     Ok(())
 }
 
