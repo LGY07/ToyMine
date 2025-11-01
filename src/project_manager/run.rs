@@ -231,6 +231,7 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
         }
     });
 
+    // 退出信号
     tokio::select! {
         _ = stop.notified() => {
             // 尝试发送 stop
@@ -251,6 +252,7 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
 
         }
         status = child.wait() => {
+            // 像其他线程发出退出信号
             let status = status?;
             stop.notify_waiters();
             info!("Server exited: {:?}", status.code());
