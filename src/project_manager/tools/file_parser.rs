@@ -62,9 +62,18 @@ pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Error> {
 
     // major version → Java 版本：直接减 45
     let major_version = u16::from_be_bytes([class_header[6], class_header[7]]);
-    let java_version = match major_version.checked_sub(44) {
-        None => return Err(Error::msg("Not a Jar file")),
-        Some(v) => v,
+    let java_version = match major_version {
+        45..52 => 21,
+        52..55 => 8,
+        55..61 => 11,
+        61..65 => 17,
+        65..69 => 21,
+        _ => {
+            return Err(Error::msg(format!(
+                "Unsupported major version: {}",
+                major_version
+            )));
+        }
     };
 
     Ok(JarInfo {
