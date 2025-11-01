@@ -10,7 +10,6 @@ use chrono::{FixedOffset, Local, TimeZone, Utc};
 use cron_tab::AsyncCron;
 use futures::future::join_all;
 use log::{debug, error, info, warn};
-use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -265,12 +264,20 @@ async fn backup_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
     let mut backup_handles = vec![];
     info!("Backup task enabled");
     // 初始化仓库
-    if backup_check_repo(format!("{}/world", BACKUP_DIR).as_str()).is_err() {
-        backup_init_repo(format!("{}/world", BACKUP_DIR).as_str())?
-    }
-    if backup_check_repo(format!("{}/other", BACKUP_DIR).as_str()).is_err() {
-        backup_init_repo(format!("{}/other", BACKUP_DIR).as_str())?
-    }
+    let init_handle_world: JoinHandle<Result<_, Error>> = spawn(async {
+        if backup_check_repo(format!("{}/world", BACKUP_DIR).as_str()).is_err() {
+            backup_init_repo(format!("{}/world", BACKUP_DIR).as_str())?;
+        }
+        Ok(())
+    });
+    let init_handle_other: JoinHandle<Result<_, Error>> = spawn(async {
+        if backup_check_repo(format!("{}/other", BACKUP_DIR).as_str()).is_err() {
+            backup_init_repo(format!("{}/other", BACKUP_DIR).as_str())?;
+        }
+        Ok(())
+    });
+    init_handle_world.await??;
+    init_handle_other.await??;
     // 启动时备份
     if config.backup.event.is_some() && config.backup.event.as_ref().unwrap().start {
         info!("Backup is enabled at start");
