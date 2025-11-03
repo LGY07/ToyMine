@@ -94,7 +94,7 @@ fn main() {
         if *generate {
             todo!();
         }
-        // 推送到守护进程(指定 URL)，仅支持 Unix 平台
+        // 推送到守护进程，仅支持 Unix 平台
         if *detach {
             #[cfg(target_family = "unix")]
             {
@@ -103,7 +103,7 @@ fn main() {
             }
             error!("This feature is not supported on this platform");
         }
-        // 连接到守护进程(指定 URL)，仅支持 Unix 平台
+        // 连接到守护进程，仅支持 Unix 平台
         if *attach {
             #[cfg(target_family = "unix")]
             {
