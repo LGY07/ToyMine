@@ -1,7 +1,7 @@
 mod daemon;
 mod project_manager;
 
-use crate::project_manager::{create_project, get_info, print_info, start_server};
+use crate::project_manager::{CACHE_DIR, create_project, get_info, print_info, start_server};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use log::{LevelFilter, error};
@@ -130,5 +130,7 @@ fn main() {
         create_project()
     }
 
-    // TODO:运行清理
+    // 清理缓存
+    fs::remove_dir_all(CACHE_DIR).expect("Cache cleanup failed!");
+    fs::create_dir(CACHE_DIR).expect("Cache create failed!");
 }
