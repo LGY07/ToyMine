@@ -499,8 +499,8 @@ curl -X GET http://localhost/project/{project id}/connect \
 | `success` |  `bool`  | Whether the request was successful. |
 |  `path`   | `string` | Interface address.                  |
 
-> You need to connect to this [interface](#websocket) using WebSocket protocol. If there is no connection within 1
-> minute, the interface will be closed.
+> You need to connect to this [interface](#websocket) using the WebSocket protocol. If there is no connection for some
+> time, the interface will be closed.
 
 ## WebSocket
 
