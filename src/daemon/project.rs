@@ -1,6 +1,5 @@
+use axum::Json;
 use axum::extract::{Multipart, Path};
-use axum::http::HeaderMap;
-use axum::{Form, Json};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -30,6 +29,6 @@ pub async fn edit(Path(id): Path<u32>, mut multipart: Multipart) -> Json<Value> 
 }
 
 /// GET 获取 WebSocket 连接
-pub async fn connect(headers: HeaderMap, Path(id): Path<u32>) -> Json<Value> {
+pub async fn connect(Path(id): Path<u32>) -> Json<Value> {
     todo!()
 }

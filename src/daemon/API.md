@@ -13,7 +13,7 @@ The API can be accessed using either TCP or Unix Socket(*nix only):
 | Unix Socket | `unix://$HOME/.pacmine/api.sock` | Use `curl --unix-socket $HOME/.pacmine/api.sock http://localhost/...` |
 
 **Authentication:**  
-All endpoints (except `/control/status`) require authentication via the following header:
+All endpoints (except `/control/status` and `/ws/{terminal token}`) require authentication via the following header:
 `Authorization: Bearer {Your API Token}`
 
 ## Control
@@ -490,7 +490,7 @@ curl -X GET http://localhost/project/{project id}/connect \
 ```
 {
   "success": true,
-  "path": "/ws/f9f939b2"
+  "path": "/ws/7a09d5cb-01ac-41ff-bf10-9e29d98efe14"
 }
 ```
 
@@ -512,9 +512,9 @@ The client must start sending and receiving frames after a successful 101 respon
 
 * Endpoint
 
-| Method | Path                  |
-|:-------|:----------------------|
-| GET    | `/ws/{terminal path}` |
+| Method | Path                   |
+|:-------|:-----------------------|
+| GET    | `/ws/{terminal token}` |
 
 * Request
 
@@ -525,19 +525,17 @@ Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Key: {Sec-WebSocket-Key}
 Sec-WebSocket-Version: 13
-Authorization: Bearer {Your API Token}
 ```
 
 * Example(Test only)
 
 ```
 curl -i -N \
-    -X GET http://localhost/ws/{terminal path} \
+    -X GET http://localhost/ws/{terminal token} \
     -H "Upgrade: websocket" \
     -H "Connection: Upgrade" \
     -H "Sec-WebSocket-Key: {Sec-WebSocket-Key}" \
-    -H "Sec-WebSocket-Version: 13" \
-    -H "Authorization: Bearer {Your API Token}"
+    -H "Sec-WebSocket-Version: 13"
 ```
 
 After a successful handshake, the server responds with:

@@ -19,7 +19,9 @@ pub fn server() -> Result<(), Error> {
     let rt = Runtime::new()?;
     rt.block_on(async {
         // 公开路由
-        let public = Router::new().route("/control/status", get(status));
+        let public = Router::new()
+            .route("/control/status", get(status))
+            .route("/ws/{terminal}", get(terminal));
 
         // 受保护的路由
         let protected = Router::new()
@@ -32,7 +34,6 @@ pub fn server() -> Result<(), Error> {
             .route("/project/{id}/download", post(download))
             .route("/project/{id}/edit", post(edit))
             .route("/project/{id}/connect", get(connect))
-            .route("/ws/{terminal}", get(terminal))
             .route_layer(middleware::from_fn(require_bearer_token));
 
         // 合并路由
