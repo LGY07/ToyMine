@@ -35,6 +35,9 @@ anyhow = "1.0"
 cron_tab = { version = "0.2", features = ["async"] }
 axum = { version = "0.8", features = ["http2", "multipart", "ws"] }
 serde_json = "1.0"
+home = "0.5"
+nix = "0.30"
+uuid = { version = "1.18", features = ["v4"] }
 
 [profile.release]
 strip = true

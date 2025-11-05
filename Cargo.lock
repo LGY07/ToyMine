@@ -15,10 +15,12 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "home",
  "indicatif",
  "infer",
  "lazy_static",
  "log",
+ "nix",
  "regex",
  "reqwest",
  "rustic_backend",
@@ -31,6 +33,7 @@ dependencies = [
  "tar",
  "tokio",
  "toml",
+ "uuid",
  "zip",
 ]
 
