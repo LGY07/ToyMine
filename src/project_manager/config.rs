@@ -149,9 +149,12 @@ impl Config {
         fs::write(path, content)?;
         Ok(())
     }
+}
 
+/// 为 Config 实现 Default
+impl Default for Config {
     /// 创建默认配置
-    pub fn default() -> Config {
+    fn default() -> Config {
         Config {
             project: Project {
                 name: "MyServer".to_string(),

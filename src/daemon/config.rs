@@ -77,43 +77,6 @@ impl Config {
         Ok(())
     }
 
-    /// 创建默认配置
-    pub fn default() -> Config {
-        // 获取家目录
-        let home = home_dir().expect("Could not get the home directory.");
-        let work_dir: PathBuf = home.join(".pacmine");
-
-        // 默认为非 linux 禁用节约空间
-        let save_space = SaveSpace::Disable;
-
-        // 默认为 linux 启用节约空间
-        #[cfg(target_os = "linux")]
-        let save_space = SaveSpace::BindRuntime;
-
-        Config {
-            api: Api {
-                listen: Self::set_listen(
-                    work_dir.to_str().expect("Could not get the home directory"),
-                ),
-            },
-            storage: Storage {
-                work_dir: work_dir
-                    .to_str()
-                    .expect("Could not get the home directory")
-                    .to_string(),
-                save_space,
-            },
-            security: Security {
-                user: Self::getuser(),
-                permissive: Some(false),
-            },
-            tokens: vec![Token {
-                value: Uuid::new_v4().to_string(),
-                expiration: None,
-            }],
-        }
-    }
-
     // 检查配置在当前平台是否有效
     pub fn check_config(&self) -> Result<(), Error> {
         // 检查监听地址是否正确
@@ -172,6 +135,46 @@ impl Config {
         // 非 *nix 默认使用 127.0.0.1:8080
         #[cfg(not(target_family = "unix"))]
         TcpAddr::new("127.0.0.1".parse().unwrap(), 8080).to_string()
+    }
+}
+
+/// 为 Config 实现 Default
+impl Default for Config {
+    /// 创建默认配置
+    fn default() -> Config {
+        // 获取家目录
+        let home = home_dir().expect("Could not get the home directory.");
+        let work_dir: PathBuf = home.join(".pacmine");
+
+        // 默认为非 linux 禁用节约空间
+        let save_space = SaveSpace::Disable;
+
+        // 默认为 linux 启用节约空间
+        #[cfg(target_os = "linux")]
+        let save_space = SaveSpace::BindRuntime;
+
+        Config {
+            api: Api {
+                listen: Self::set_listen(
+                    work_dir.to_str().expect("Could not get the home directory"),
+                ),
+            },
+            storage: Storage {
+                work_dir: work_dir
+                    .to_str()
+                    .expect("Could not get the home directory")
+                    .to_string(),
+                save_space,
+            },
+            security: Security {
+                user: Self::getuser(),
+                permissive: Some(false),
+            },
+            tokens: vec![Token {
+                value: Uuid::new_v4().to_string(),
+                expiration: None,
+            }],
+        }
     }
 }
 
