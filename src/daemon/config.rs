@@ -9,17 +9,17 @@ use uuid::Uuid;
 /// Daemon 配置文件
 #[derive(Deserialize, Serialize)]
 pub struct Config {
-    api: Api,
-    storage: Storage,
-    security: Security,
-    tokens: Vec<Token>,
+    pub(crate) api: Api,
+    pub(crate) storage: Storage,
+    pub(crate) security: Security,
+    pub(crate) tokens: Vec<Token>,
 }
 
 /// API 选项
 #[derive(Deserialize, Serialize)]
 pub struct Api {
     /// 监听位置
-    listen: String,
+    pub(crate) listen: String,
 }
 /// 解析的 API
 pub enum ApiAddr {
@@ -33,9 +33,9 @@ pub enum ApiAddr {
 #[derive(Deserialize, Serialize)]
 pub struct Storage {
     /// 工作目录
-    work_dir: String,
+    pub(crate) work_dir: String,
     /// 节约空间选项
-    save_space: SaveSpace,
+    pub(crate) save_space: SaveSpace,
 }
 #[derive(Deserialize, Serialize, PartialEq)]
 pub enum SaveSpace {
@@ -48,18 +48,18 @@ pub enum SaveSpace {
 #[derive(Deserialize, Serialize)]
 pub struct Security {
     /// 用户 UID，负数则不支持 POSIX，安全选项无效
-    user: isize,
+    pub(crate) user: isize,
     /// 宽容模式，允许使用非本用户的文件
-    permissive: Option<bool>,
+    pub(crate) permissive: Option<bool>,
 }
 
 /// Token 列表
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct Token {
     /// Bearer Token 值
-    value: String,
+    pub(crate) value: String,
     /// Token 过期时间
-    expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub(crate) expiration: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Config {

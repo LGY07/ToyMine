@@ -1,3 +1,5 @@
+use crate::daemon::config;
+use crate::daemon::config::{ApiAddr, Token};
 use crate::daemon::control::{add, create, list, remove, status};
 use crate::daemon::project::{connect, download, edit, start, stop};
 use crate::daemon::websocket::terminal;
@@ -11,11 +13,17 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
+use chrono::Utc;
+use log::info;
 use serde_json::json;
+use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 
 /// 运行 Daemon
-pub fn server() -> Result<(), Error> {
+pub fn server(config: config::Config) -> Result<(), Error> {
+    // 检查配置文件
+    config.check_config()?;
+
     let rt = Runtime::new()?;
     rt.block_on(async {
         // 公开路由
@@ -34,23 +42,56 @@ pub fn server() -> Result<(), Error> {
             .route("/project/{id}/download", post(download))
             .route("/project/{id}/edit", post(edit))
             .route("/project/{id}/connect", get(connect))
-            .route_layer(middleware::from_fn(require_bearer_token));
+            .route_layer(middleware::from_fn(move |req, next| {
+                require_bearer_token(req, next, config.tokens.clone())
+            }));
 
         // 合并路由
         let app = Router::new().merge(public).merge(protected);
 
-        // 监听
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-
         // 启动服务
-        axum::serve(listener, app).await?;
+        match config.api.parse_url()? {
+            // 监听 Tcp
+            ApiAddr::Tcp(addr) => {
+                info!("Listening on TCP: {addr}");
+                let listener = TcpListener::bind(addr).await?;
+                axum::serve(listener, app).await?;
+            }
+
+            // 监听 Unix Socket
+            ApiAddr::UnixSocket(path) => {
+                #[cfg(not(target_family = "unix"))]
+                {
+                    return Err(Error::msg("Unix socket not supported on this platform"));
+                }
+
+                #[cfg(target_family = "unix")]
+                {
+                    use tokio::net::UnixListener;
+                    // 删除旧的 socket 文件
+                    if Path::new(&path).exists() {
+                        std::fs::remove_file(&path)?;
+                    }
+
+                    info!("Listening on Unix socket: {path}");
+                    let listener = UnixListener::bind(&path)?;
+
+                    axum::serve(
+                        tokio_stream::wrappers::UnixListenerStream::new(listener),
+                        app,
+                    )
+                    .await?;
+                }
+            }
+        };
+
         Ok::<(), Error>(())
     })?;
     Ok(())
 }
 
 /// Bearer Token 验证中间件
-async fn require_bearer_token(req: Request<Body>, next: Next) -> Response {
+async fn require_bearer_token(req: Request<Body>, next: Next, token_list: Vec<Token>) -> Response {
     // 读取 Authorization 头
     let auth_header = req
         .headers()
@@ -59,7 +100,10 @@ async fn require_bearer_token(req: Request<Body>, next: Next) -> Response {
 
     // 检查 Bearer Token
     if let Some(token) = auth_header.and_then(|v| v.strip_prefix("Bearer ")) {
-        if token == "abc123" {
+        if token_list.iter().any(|known_token| {
+            // Token 存在且未过期
+            known_token.value == token && known_token.expiration > Option::from(Utc::now())
+        }) {
             return next.run(req).await;
         }
     }
