@@ -16,7 +16,7 @@ use axum::{
 use chrono::Utc;
 use log::info;
 use serde_json::json;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UnixListener};
 use tokio::runtime::Runtime;
 
 /// 运行 Daemon
@@ -55,7 +55,7 @@ pub fn server(config: config::Config) -> Result<(), Error> {
             ApiAddr::Tcp(addr) => {
                 info!("Listening on TCP: {addr}");
                 let listener = TcpListener::bind(addr).await?;
-                axum::serve(listener, app).await?;
+                axum::serve(listener,app).await?;
             }
 
             // 监听 Unix Socket
@@ -68,19 +68,16 @@ pub fn server(config: config::Config) -> Result<(), Error> {
                 #[cfg(target_family = "unix")]
                 {
                     use tokio::net::UnixListener;
+                    use std::path::Path;
                     // 删除旧的 socket 文件
                     if Path::new(&path).exists() {
                         std::fs::remove_file(&path)?;
                     }
 
-                    info!("Listening on Unix socket: {path}");
+                    info!("Listening on Unix socket: {path:?}");
                     let listener = UnixListener::bind(&path)?;
+                    axum::serve(listener,app).await?;
 
-                    axum::serve(
-                        tokio_stream::wrappers::UnixListenerStream::new(listener),
-                        app,
-                    )
-                    .await?;
                 }
             }
         };
