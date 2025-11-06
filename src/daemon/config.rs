@@ -131,7 +131,7 @@ impl Config {
     fn set_listen(work_dir: &str) -> String {
         // *nix 默认使用 $HOME/.pacmine/api.sock
         #[cfg(target_family = "unix")]
-        return format!("unix://{}/api.socket", work_dir).to_string();
+        return format!("{}/api.sock", work_dir).to_string();
         // 非 *nix 默认使用 127.0.0.1:8080
         #[cfg(not(target_family = "unix"))]
         TcpAddr::new("127.0.0.1".parse().unwrap(), 8080).to_string()
