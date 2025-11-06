@@ -1,9 +1,11 @@
 use axum::Json;
+use log::debug;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 /// GET 获取状态
 pub async fn status() -> Json<Value> {
+    debug!("A status request was responded");
     Json(json!({
         "success":true
     }))

@@ -14,7 +14,7 @@ use axum::{
     response::Response,
 };
 use chrono::Utc;
-use log::info;
+use log::{debug, info};
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -100,8 +100,10 @@ async fn require_bearer_token(req: Request<Body>, next: Next, token_list: Vec<To
             // Token 存在且未过期
             known_token.value == token && known_token.expiration > Option::from(Utc::now())
         }) {
+            debug!("Bearer Token authentication was successful");
             return next.run(req).await;
         }
+        debug!("Bearer Token authentication failed")
     }
 
     // 返回 JSON 错误
