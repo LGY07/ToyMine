@@ -6,7 +6,8 @@ use crate::project_manager::{
 };
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use log::{LevelFilter, error};
+use home::home_dir;
+use log::{LevelFilter, error, info};
 use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
 use std::fs;
 use std::path::PathBuf;
@@ -146,6 +147,45 @@ fn main() {
             Ok(v) => pre_run(&v).expect("The program exited with errors!"),
             Err(e) => error!("The configuration cannot be opened: {:?}", e),
         };
+    }
+
+    // daemon 子命令
+    if let Commands::Daemon {
+        config,
+        install_systemd,
+        install_openrc,
+    } = &cli.command
+    {
+        if *install_openrc {
+            todo!();
+            return;
+        }
+        if *install_openrc {
+            todo!();
+            return;
+        }
+        if let Some(config) = config {
+            match daemon::server(
+                daemon::Config::from_file(config)
+                    .expect("The configuration file could not be opened"),
+            ) {
+                Ok(v) => info!("Server successfully exited"),
+                Err(e) => error!("The program exited with errors: {:?}", e),
+            }
+        } else {
+            match daemon::server(
+                daemon::Config::from_file(format!(
+                    "{}/.pacmine/config.toml",
+                    home_dir()
+                        .expect("The configuration file could not be opened")
+                        .display()
+                ))
+                .expect("The configuration file could not be opened"),
+            ) {
+                Ok(v) => info!("Server successfully exited:"),
+                Err(e) => error!("The program exited with errors: {:?}", e),
+            }
+        }
     }
 
     // 清理缓存
