@@ -5,6 +5,7 @@ use anyhow::Error;
 use colored::Colorize;
 use log::debug;
 use serde::{Deserialize, Serialize};
+use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -57,7 +58,7 @@ pub struct Java {
     pub(crate) version: usize,
     /// 自定义 Java 的 `JAVA_HOME`，`edition` 生效且为 `custom` 时生效
     #[serde(default)]
-    pub(crate) custom: String,
+    pub(crate) custom: PathBuf,
     /// 自定义 Java 额外参数列表
     #[serde(default)]
     pub(crate) arguments: Vec<String>,
@@ -68,7 +69,7 @@ pub struct Java {
 }
 
 /// Java环境管理模式
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum JavaMode {
     /// 自动根据游戏文件管理
@@ -78,7 +79,7 @@ pub enum JavaMode {
 }
 
 /// Java 类型
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum JavaType {
     /// OpenJDK，默认使用 Microsoft 构建
@@ -169,7 +170,7 @@ impl Default for Config {
                     mode: JavaMode::Auto,
                     version: 21,
                     edition: JavaType::OpenJDK,
-                    custom: String::new(),
+                    custom: PathBuf::new(),
                     arguments: vec![],
                     xms: 0,
                     xmx: 0,
@@ -348,6 +349,12 @@ impl Display for JavaType {
 
 impl Java {
     pub fn to_binary(&self) -> Result<PathBuf, Error> {
+        // 自定义的 JDK
+        if JavaMode::Manual == self.mode && JavaType::Custom == self.edition {
+            return Ok(self.custom.clone());
+        }
+
+        // 非自定义的 JDK
         let runtime_path = format!(
             "{}/java-{}-{}-{}-{}",
             RUNTIME_DIR,
