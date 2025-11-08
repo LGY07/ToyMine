@@ -50,7 +50,7 @@ pub fn server(config: config::Config) -> Result<(), Error> {
         let app = Router::new().merge(public).merge(protected);
 
         // 启动服务
-        match config.api.parse_url()? {
+        match config.api.listen {
             // 监听 Tcp
             ApiAddr::Tcp(addr) => {
                 info!("Listening on TCP: {addr}");

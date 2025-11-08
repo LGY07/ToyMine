@@ -19,9 +19,10 @@ pub struct Config {
 #[derive(Deserialize, Serialize)]
 pub struct Api {
     /// 监听位置
-    pub(crate) listen: String,
+    pub(crate) listen: ApiAddr,
 }
 /// 解析的 API
+#[derive(Deserialize, Serialize)]
 pub enum ApiAddr {
     /// /path/to/api.sock
     UnixSocket(PathBuf),
@@ -79,9 +80,6 @@ impl Config {
 
     // 检查配置在当前平台是否有效
     pub fn check_config(&self) -> Result<(), Error> {
-        // 检查监听地址是否正确
-        let api_addr = self.api.parse_url()?;
-
         // 对非 *nix 的平台进行兼容性检查
         #[cfg(not(target_family = "unix"))]
         {
@@ -92,7 +90,7 @@ impl Config {
                 ));
             }
             // 非 *nix 无法使用 Unix Socket (Tokio 暂时不支持 Windows 的 Unix Socket)
-            if let ApiAddr::UnixSocket(_) = api_addr {
+            if let ApiAddr::UnixSocket(_) = &self.api.listen {
                 return Err(Error::msg(
                     "The current platform does not support UnixSocket, make sure the configuration is for that platform.",
                 ));
@@ -128,13 +126,13 @@ impl Config {
     }
 
     /// 设置监听地址
-    fn set_listen(work_dir: &str) -> String {
+    fn set_listen(work_dir: &str) -> ApiAddr {
         // *nix 默认使用 $HOME/.pacmine/api.sock
         #[cfg(target_family = "unix")]
-        return format!("{}/api.sock", work_dir).to_string();
+        return ApiAddr::UnixSocket(PathBuf::from(format!("{}/api.sock", work_dir)));
         // 非 *nix 默认使用 127.0.0.1:8080
         #[cfg(not(target_family = "unix"))]
-        TcpAddr::new("127.0.0.1".parse().unwrap(), 8080).to_string()
+        ApiAddr::Tcp(TcpAddr::new("127.0.0.1".parse().unwrap(), 8080))
     }
 }
 
@@ -178,24 +176,17 @@ impl Default for Config {
     }
 }
 
-impl Api {
-    /// 解析 API 监听地址
-    pub fn parse_url(&self) -> Result<ApiAddr, Error> {
-        // 尝试解析成 TCP
-        if let Ok(addr) = self.listen.parse::<TcpAddr>() {
-            return Ok(ApiAddr::Tcp(addr));
-        }
+#[derive(Deserialize, Serialize)]
+pub struct Known {
+    current_mode: SaveSpace,
+    project: Vec<Project>,
+}
 
-        // 否则当作 Unix Socket
-        if !self.listen.is_empty() {
-            return Ok(ApiAddr::UnixSocket(PathBuf::from(self.listen.clone())));
-        }
-
-        Err(Error::msg(format!(
-            "Invalid socket address: {}",
-            self.listen
-        )))
-    }
+#[derive(Deserialize, Serialize)]
+pub struct Project {
+    id: usize,
+    manual: bool,
+    path: PathBuf,
 }
 
 #[cfg(test)]
