@@ -237,7 +237,7 @@ pub async fn create(config: State<Arc<Config>>, body: String) -> Result<Response
     });
     // 写入列表
     known
-        .to_file(config.storage.work_dir.join("konwn.toml"))
+        .to_file(config.storage.work_dir.join("known.toml"))
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
