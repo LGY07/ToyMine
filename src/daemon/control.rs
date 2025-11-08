@@ -122,7 +122,7 @@ pub async fn add(config: State<Arc<Config>>, Json(body): Json<Add>) -> Result<Re
 
     // 添加项目
     known.project.push(Project {
-        id: known.project.iter().map(|x| x.id).max().unwrap_or(0),
+        id: known.project.iter().map(|x| x.id).max().unwrap_or(0) + 1,
         manual: true, // 此处为 add API 创建
         path: PathBuf::from(body.path),
     });
@@ -231,7 +231,7 @@ pub async fn create(config: State<Arc<Config>>, body: String) -> Result<Response
     })?;
     // 添加项目
     known.project.push(Project {
-        id: known.project.iter().map(|x| x.id).max().unwrap_or(0),
+        id: known.project.iter().map(|x| x.id).max().unwrap_or(0) + 1,
         manual: false, // 此处为 create API 创建
         path: dir,
     });
