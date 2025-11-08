@@ -45,6 +45,17 @@ pub async fn start(
             )
                 .into_response(),
         )?;
+    // 进入目录
+    std::env::set_current_dir(project.path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+            }),
+        )
+            .into_response()
+    })?;
     // 读取配置
     let project_config = crate::project_manager::get_info().map_err(|e| {
         (
