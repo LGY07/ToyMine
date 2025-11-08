@@ -112,6 +112,22 @@ pub async fn add(config: State<Arc<Config>>, Json(body): Json<Add>) -> Result<Re
             .into_response()
     })?;
 
+    // 避免重复添加
+    if known
+        .project
+        .iter()
+        .any(|x| x.path == PathBuf::from(&body.path))
+    {
+        return Err((
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(ErrorResponse {
+                success: false,
+                error: "Project already exists".to_string(),
+            }),
+        )
+            .into_response());
+    }
+
     // 尝试读取添加的项目
     project_manager::Config::from_file(std::path::Path::new(&body.path).join("PacMine.toml"))
         .map_err(|e| {
