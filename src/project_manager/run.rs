@@ -78,10 +78,7 @@ pub fn start_server(config: Config) -> Result<(), Error> {
 }
 
 /// 服务器线程(同步到终端)
-async fn server_thread_with_terminal(
-    config: Arc<project_manager::Config>,
-    stop: Arc<Notify>,
-) -> Result<(), Error> {
+async fn server_thread_with_terminal(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
     // channel：外层发送给 server_thread 的 stdin
     let (tx_in, rx_in) = mpsc::channel::<String>(100);
     // channel：server_thread 输出 stdout/stderr
@@ -146,7 +143,7 @@ pub async fn server_thread(
     mut rx: mpsc::Receiver<String>, // 接收外部消息 -> 写入子进程 stdin
     tx: mpsc::Sender<String>,       // 发送子进程 stdout/stderr 给外部
     stop: Arc<Notify>,
-    config: Arc<project_manager::Config>,
+    config: Arc<Config>,
 ) -> Result<(), Error> {
     // 启动子进程
     let mut child = if let ServerType::BDS = config.as_ref().project.server_type {
