@@ -1,4 +1,3 @@
-use crate::project_manager;
 use crate::project_manager::config::{JavaMode, JavaType};
 use crate::project_manager::tools::backup::{backup_check_repo, backup_init_repo, backup_new_snap};
 use crate::project_manager::tools::{

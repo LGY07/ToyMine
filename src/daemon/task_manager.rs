@@ -1,3 +1,4 @@
+use std::thread::sleep;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -73,7 +74,11 @@ impl<In: Send + 'static, Out: Send + 'static> TaskManager<In, Out> {
     /// 停止指定任务
     pub fn stop_task(&self, id: usize) {
         if let Some(t) = self.tasks.lock().unwrap().get(&id) {
-            t.stop.notify_one();
+            // 人被逼急了什么都做得出来
+            for _ in 0..3 {
+                sleep(std::time::Duration::from_millis(100));
+                t.stop.notify_waiters();
+            }
         }
     }
 
