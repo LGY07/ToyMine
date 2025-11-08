@@ -24,7 +24,8 @@ pub async fn status() -> Response {
     (
         StatusCode::OK,
         Json(json!({
-            "success":true
+            "success":true,
+            "version":1.0
         })),
     )
         .into_response()

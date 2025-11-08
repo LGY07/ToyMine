@@ -39,12 +39,14 @@ curl -X GET http://localhost/control/status
 ```
 {
   "success": true
+  "version": 1.0
 }
 ```
 
-|    Key    |  Type  | Description                                     |
-|:---------:|:------:|:------------------------------------------------|
-| `success` | `bool` | Indicates whether the operation was successful. |
+|    Key    |   Type   | Description                                     |
+|:---------:|:--------:|:------------------------------------------------|
+| `success` |  `bool`  | Indicates whether the operation was successful. |
+| `version` | `number` | API version                                     |
 
 ### List
 
