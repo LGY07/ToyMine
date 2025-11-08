@@ -1,9 +1,10 @@
 use crate::daemon::Config;
 use crate::daemon::config::{Known, Project};
+use crate::daemon::task_manager::TaskManager;
 use crate::project_manager;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
-use axum::{Json, http::StatusCode};
+use axum::{Extension, Json, http::StatusCode};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -12,9 +13,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Deserialize, Serialize)]
-struct ErrorResponse {
-    success: bool,
-    error: String,
+pub(crate) struct ErrorResponse {
+    pub(crate) success: bool,
+    pub(crate) error: String,
 }
 
 /// GET 获取状态
@@ -30,7 +31,10 @@ pub async fn status() -> Response {
 }
 
 /// GET 获取列表
-pub async fn list(config: State<Arc<Config>>) -> Result<Response, Response> {
+pub async fn list(
+    config: State<Arc<Config>>,
+    task_manager: Extension<Arc<TaskManager<String, String>>>,
+) -> Result<Response, Response> {
     debug!("A list request was responded");
     // 定义响应
     #[derive(Deserialize, Serialize)]
@@ -78,7 +82,7 @@ pub async fn list(config: State<Arc<Config>>) -> Result<Response, Response> {
             })?;
         list_response.projects.push(Project {
             id: i.id,
-            running: false, // TODO
+            running: task_manager.exists(i.id), // TODO
             name: config.project.name,
             server_type: format!("{:?}", config.project.server_type),
             version: config.project.version,

@@ -1,3 +1,4 @@
+use crate::project_manager;
 use crate::project_manager::config::{JavaMode, JavaType};
 use crate::project_manager::tools::backup::{backup_check_repo, backup_init_repo, backup_new_snap};
 use crate::project_manager::tools::{
@@ -15,7 +16,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::{env, fs};
 use tokio::fs::OpenOptions;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, stdin, stdout};
 use tokio::process::Command;
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, Notify, mpsc};
@@ -46,7 +47,10 @@ pub fn start_server(config: Config) -> Result<(), Error> {
         }
 
         // 启动服务器线程
-        handles.push(spawn(server_thread(Arc::clone(&config), stop_flag.clone())));
+        handles.push(spawn(server_thread_with_terminal(
+            Arc::clone(&config),
+            stop_flag.clone(),
+        )));
 
         // 停止信号
         tokio::select! {
@@ -73,14 +77,79 @@ pub fn start_server(config: Config) -> Result<(), Error> {
     Ok(())
 }
 
-/// 服务器线程
-async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
-    let config = Arc::clone(&config);
-    // 创建 channel
-    let (tx, mut rx) = mpsc::channel::<String>(100);
+/// 服务器线程(同步到终端)
+async fn server_thread_with_terminal(
+    config: Arc<project_manager::Config>,
+    stop: Arc<Notify>,
+) -> Result<(), Error> {
+    // channel：外层发送给 server_thread 的 stdin
+    let (tx_in, rx_in) = mpsc::channel::<String>(100);
+    // channel：server_thread 输出 stdout/stderr
+    let (tx_out, mut rx_out) = mpsc::channel::<String>(100);
 
+    let stop_clone = stop.clone();
+    let config_clone = config.clone();
+    // spawn server_thread
+    let server_handle = spawn(async move {
+        server_thread(rx_in, tx_out, stop_clone, config_clone)
+            .await
+            .unwrap_or_else(|e| log::error!("Server thread error: {}", e));
+    });
+
+    // spawn 打印线程（输出到终端）
+    let stop_clone = stop.clone();
+    let print_handle = spawn(async move {
+        let mut out = stdout();
+        while let Some(line) = rx_out.recv().await {
+            tokio::select! {
+                _ = stop_clone.notified() => break,
+                _ = async {
+                    let _ = out.write_all(line.as_bytes()).await;
+                    let _ = out.flush().await;
+                } => {}
+            }
+        }
+    });
+
+    // spawn 读取终端输入线程（写入 server_thread stdin）
+    let tx_in_clone = tx_in.clone();
+    let stop_clone = stop.clone();
+    let input_handle = spawn(async move {
+        let mut buf = [0u8; 1024];
+        let mut stdin = stdin();
+        loop {
+            tokio::select! {
+                _ = stop_clone.notified() => break,
+                result = stdin.read(&mut buf) => {
+                    match result {
+                        Ok(n) if n > 0 => {
+                            let line = String::from_utf8_lossy(&buf[..n]).to_string();
+                            let _ = tx_in_clone.send(line).await;
+                        }
+                        _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                    }
+                }
+            }
+        }
+    });
+
+    // 等待 server_task 完成
+    let _ = server_handle.await;
+    let _ = print_handle.await;
+    let _ = input_handle.await;
+
+    Ok(())
+}
+
+/// 服务端线程，仅同步到 mpsc 通道
+pub async fn server_thread(
+    mut rx: mpsc::Receiver<String>, // 接收外部消息 -> 写入子进程 stdin
+    tx: mpsc::Sender<String>,       // 发送子进程 stdout/stderr 给外部
+    stop: Arc<Notify>,
+    config: Arc<project_manager::Config>,
+) -> Result<(), Error> {
+    // 启动子进程
     let mut child = if let ServerType::BDS = config.as_ref().project.server_type {
-        // BDS
         info!("Server starting...");
         Command::new(&config.as_ref().project.execute)
             .stdin(Stdio::piped())
@@ -109,9 +178,9 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
             .spawn()?
     };
 
-    // stdin/log 文件包装
     let child_stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
 
+    // 日志文件
     let stdout_file = Arc::new(Mutex::new(
         OpenOptions::new()
             .create(true)
@@ -139,18 +208,16 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    // stdout -> tx + stdout.log
+    // stdout -> tx + log
     let tx_stdout = tx.clone();
     let stdout_file_clone = stdout_file.clone();
-    let stop_clone = Arc::clone(&stop);
+    let stop_clone = stop.clone();
     let stdout_handle = spawn(async move {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         while reader.read_line(&mut line).await? > 0 {
             tokio::select! {
-                _ = stop_clone.notified() => {
-                    break;
-                }
+                _ = stop_clone.notified() => break,
                 _ = async {
                     let _ = tx_stdout.send(line.clone()).await;
                     let mut f = stdout_file_clone.lock().await;
@@ -162,18 +229,16 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
         Ok::<(), Error>(())
     });
 
-    // stderr -> tx + stderr.log
+    // stderr -> tx + log
     let tx_stderr = tx.clone();
     let stderr_file_clone = stderr_file.clone();
-    let stop_clone = Arc::clone(&stop);
+    let stop_clone = stop.clone();
     let stderr_handle = spawn(async move {
         let mut reader = BufReader::new(stderr);
         let mut line = String::new();
         while reader.read_line(&mut line).await? > 0 {
             tokio::select! {
-                _ = stop_clone.notified() => {
-                    break;
-                }
+                _ = stop_clone.notified() => break,
                 _ = async {
                     let _ = tx_stderr.send(line.clone()).await;
                     let mut f = stderr_file_clone.lock().await;
@@ -185,61 +250,30 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
         Ok::<(), Error>(())
     });
 
-    // stdin -> 子进程 stdin
+    // rx -> stdin
     let child_stdin_clone = child_stdin.clone();
     let stop_clone = stop.clone();
     let stdin_handle = spawn(async move {
-        let mut stdin = tokio::io::stdin();
-        let mut buf = [0u8; 1024];
-
-        loop {
+        while let Some(msg) = rx.recv().await {
             tokio::select! {
-                _ = stop_clone.notified() => {
-                    break;
-                }
+                _ = stop_clone.notified() => break,
                 _ = async {
-                    match stdin.read(&mut buf).await {
-                    Ok(n) if n > 0 => {
-                        let mut child_stdin = child_stdin_clone.lock().await;
-                        let _ = child_stdin.write_all(&buf[..n]).await;
-                    }
-                    _ => {
-                        // 没有输入就稍微休眠，避免忙循环
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    }
-                }
+                    let mut stdin = child_stdin_clone.lock().await;
+                    let _ = stdin.write_all(msg.as_bytes()).await;
+                    let _ = stdin.write_all(b"\n").await;
                 } => {}
             }
         }
         Ok::<(), Error>(())
     });
 
-    // 打印线程
-    let stop_clone = Arc::clone(&stop);
-    let print_handle = spawn(async move {
-        let mut out = tokio::io::stdout();
-        while let Some(line) = rx.recv().await {
-            tokio::select! {
-                _ = stop_clone.notified() => {
-                    break;
-                }
-                _ = async {
-                    let _ = out.write_all(line.as_bytes()).await;
-                    let _ = out.flush().await;
-                } => {}
-            }
-        }
-    });
-
-    // 退出信号
+    // 等待子进程结束或停止信号
     tokio::select! {
         _ = stop.notified() => {
-            // 尝试发送 stop
             let mut stdin = child_stdin.lock().await;
             let _ = stdin.write_all(b"stop\n").await;
             let _ = stdin.flush().await;
             info!("Stopping server...");
-            // 等待服务器退出或超时 kill
             match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await {
                 Ok(Ok(_)) => info!("Server exited gracefully."),
                 Ok(Err(e)) => error!("Error waiting for server exit: {}", e),
@@ -249,10 +283,8 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
                     let _ = child.wait().await;
                 }
             }
-
         }
         status = child.wait() => {
-            // 像其他线程发出退出信号
             let status = status?;
             stop.notify_waiters();
             info!("Server exited: {:?}", status.code());
@@ -264,13 +296,12 @@ async fn server_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Err
     let _ = stderr_handle.await?;
     let _ = stdin_handle.await?;
     drop(tx);
-    let _ = print_handle.await;
 
     Ok(())
 }
 
 /// 备份线程
-async fn backup_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
+pub async fn backup_thread(config: Arc<Config>, stop: Arc<Notify>) -> Result<(), Error> {
     let mut backup_handles = vec![];
     info!("Backup task enabled");
     // 初始化仓库

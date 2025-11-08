@@ -1,7 +1,7 @@
-mod config;
+pub(crate) mod config;
 pub(crate) mod create;
 mod info;
-mod run;
+pub(crate) mod run;
 pub mod tools;
 
 pub use config::Config;

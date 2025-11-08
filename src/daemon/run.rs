@@ -1,14 +1,15 @@
 use crate::daemon::config;
 use crate::daemon::config::{ApiAddr, Known, Token};
 use crate::daemon::control::{add, create, list, remove, status};
-use crate::daemon::project::{connect, download, edit, start, stop};
+use crate::daemon::project::{connect, download, start, stop, upload};
+use crate::daemon::task_manager::TaskManager;
 use crate::daemon::websocket::terminal;
 use anyhow::Error;
 use axum::body::Body;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -50,7 +51,11 @@ pub fn server(config: config::Config) -> Result<(), Error> {
         .to_file(config.storage.work_dir.join("known.toml"))?;
     }
 
+    // 配置信息
     let config = Arc::new(config);
+    // 创建线程管理器
+    let task_manager: TaskManager<String, String> = TaskManager::new();
+    let task_manager = Arc::new(task_manager);
     let rt = Runtime::new()?;
     rt.block_on(async {
         // 公开路由
@@ -68,7 +73,7 @@ pub fn server(config: config::Config) -> Result<(), Error> {
             .route("/project/{id}/start", get(start))
             .route("/project/{id}/stop", get(stop))
             .route("/project/{id}/download", post(download))
-            .route("/project/{id}/edit", post(edit))
+            .route("/project/{id}/upload", post(upload))
             .route("/project/{id}/connect", get(connect))
             .route_layer(middleware::from_fn(move |req, next| {
                 require_bearer_token(req, next, config_clone.token.clone())
@@ -78,7 +83,8 @@ pub fn server(config: config::Config) -> Result<(), Error> {
         let app = Router::new()
             .merge(public)
             .merge(protected)
-            .with_state(config.clone());
+            .with_state(config.clone())
+            .layer(Extension(task_manager.clone()));
 
         // 启动服务
         match &config.api.listen {
