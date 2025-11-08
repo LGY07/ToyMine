@@ -16,7 +16,6 @@ use axum::{
 use chrono::Utc;
 use log::{debug, info};
 use serde_json::json;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -48,7 +47,7 @@ pub fn server(config: config::Config) -> Result<(), Error> {
             current_mode: config.storage.save_space.clone(),
             project: vec![],
         }
-        .to_file(&config.storage.work_dir.join("known.toml"))?;
+        .to_file(config.storage.work_dir.join("known.toml"))?;
     }
 
     let config = Arc::new(config);
