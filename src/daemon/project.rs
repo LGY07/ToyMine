@@ -2,6 +2,7 @@ use crate::daemon::Config as DaemonConfig;
 use crate::daemon::config::Known;
 use crate::daemon::control::ErrorResponse;
 use crate::daemon::task_manager::TaskManager;
+use crate::daemon::websocket::WebSocketManager;
 use crate::project_manager::run::{backup_thread, server_thread};
 use axum::extract::{Multipart, Path as AxumPath, State};
 use axum::http::StatusCode;
@@ -448,6 +449,59 @@ pub async fn upload(
 pub async fn connect(
     config: State<Arc<DaemonConfig>>,
     AxumPath(id): AxumPath<usize>,
+    ws_manager: Extension<Arc<WebSocketManager>>,
+    task_manager: Extension<Arc<TaskManager<String, String>>>,
 ) -> Result<Response, Response> {
-    todo!()
+    #[derive(Serialize)]
+    struct ConnectResponse {
+        success: bool,
+        path: String,
+    }
+    // 读取已知列表
+    let known = Known::from_file(config.storage.work_dir.join("known.toml")).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+            }),
+        )
+            .into_response()
+    })?;
+    // 查找项目
+    let project = known
+        .project
+        .clone()
+        .into_iter()
+        .find(|x| x.id == id)
+        .ok_or(
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    success: false,
+                    error: "The project cannot be found".to_string(),
+                }),
+            )
+                .into_response(),
+        )?;
+    // 查找线程
+    if !task_manager.exists(project.id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                success: false,
+                error: "The project is not running".to_string(),
+            }),
+        )
+            .into_response());
+    }
+
+    // 注册连接
+    let uuid = ws_manager.register_task(project.id);
+
+    Ok(Json(ConnectResponse {
+        success: true,
+        path: format!("/ws/{}", uuid).to_string(),
+    })
+    .into_response())
 }

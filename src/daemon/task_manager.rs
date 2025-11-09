@@ -32,7 +32,7 @@ impl<In: Send + 'static, Out: Send + 'static> TaskManager<In, Out> {
     pub fn spawn_task<F, Fut>(&self, id: usize, func: F)
     where
         F: FnOnce(mpsc::Receiver<In>, mpsc::Sender<Out>, Arc<Notify>) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
         let (to_task_tx, to_task_rx) = mpsc::channel::<In>(64);
         let (from_task_tx, from_task_rx) = mpsc::channel::<Out>(64);

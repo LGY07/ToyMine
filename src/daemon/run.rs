@@ -3,7 +3,7 @@ use crate::daemon::config::{ApiAddr, Known, Token};
 use crate::daemon::control::{add, create, list, remove, status};
 use crate::daemon::project::{connect, download, start, stop, upload};
 use crate::daemon::task_manager::TaskManager;
-use crate::daemon::websocket::terminal;
+use crate::daemon::websocket::{WebSocketManager, terminal};
 use anyhow::Error;
 use axum::body::Body;
 use axum::response::IntoResponse;
@@ -30,7 +30,7 @@ pub fn server(config: config::Config) -> Result<(), Error> {
     let dir_list = [
         &config.storage.work_dir,
         &config.storage.work_dir.join("projects"),
-        &config.storage.work_dir.join("merged"),
+        &config.storage.work_dir.join("upper"),
         &config.storage.work_dir.join("read_only"),
         &config.storage.work_dir.join("read_only").join("resources"),
         &config.storage.work_dir.join("read_only").join("versions"),
@@ -54,8 +54,10 @@ pub fn server(config: config::Config) -> Result<(), Error> {
     // 配置信息
     let config = Arc::new(config);
     // 创建线程管理器
-    let task_manager: TaskManager<String, String> = TaskManager::new();
-    let task_manager = Arc::new(task_manager);
+    let task_manager = Arc::new(TaskManager::<String, String>::new());
+    // 创建 WebSocket 管理器
+    let ws_manager = Arc::new(WebSocketManager::new(task_manager.clone()));
+
     let rt = Runtime::new()?;
     rt.block_on(async {
         // 公开路由
@@ -84,7 +86,8 @@ pub fn server(config: config::Config) -> Result<(), Error> {
             .merge(public)
             .merge(protected)
             .with_state(config.clone())
-            .layer(Extension(task_manager.clone()));
+            .layer(Extension(task_manager.clone()))
+            .layer(Extension(ws_manager.clone()));
 
         // 启动服务
         match &config.api.listen {
