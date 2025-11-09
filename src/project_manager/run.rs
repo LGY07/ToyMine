@@ -64,7 +64,7 @@ pub fn start_server(config: Config) -> Result<(), Error> {
         let results = join_all(handles).await;
         for r in results {
             match r {
-                Ok(Ok(())) => info!("Server exited successfully."),
+                Ok(Ok(())) => (),
                 Ok(Err(e)) => error!("Task error: {}", e),
                 Err(e) => error!("Join error: {}", e),
             }
@@ -72,6 +72,10 @@ pub fn start_server(config: Config) -> Result<(), Error> {
 
         Ok::<(), Error>(())
     })?;
+
+    // 停机
+    rt.shutdown_background();
+    info!("Server exited successfully.");
 
     Ok(())
 }
@@ -288,9 +292,9 @@ pub async fn server_thread(
     }
 
     // 等待所有线程完成
-    let _ = stdout_handle.await?;
-    let _ = stderr_handle.await?;
-    let _ = stdin_handle.await?;
+    stdout_handle.abort();
+    stderr_handle.abort();
+    stdin_handle.abort();
     drop(tx);
 
     Ok(())

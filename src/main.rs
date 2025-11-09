@@ -9,6 +9,7 @@ use colored::Colorize;
 use home::home_dir;
 use std::fs;
 use std::path::PathBuf;
+use tracing::log::debug;
 use tracing::{error, info};
 
 #[derive(Parser)]
@@ -153,7 +154,7 @@ fn main() {
         install_openrc,
     } = &cli.command
     {
-        if *install_openrc {
+        if *install_systemd {
             todo!();
             return;
         }
