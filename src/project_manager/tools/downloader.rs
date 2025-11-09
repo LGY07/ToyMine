@@ -35,7 +35,7 @@ pub fn download_files(
 
 /// 单线程下载文件
 pub fn download_file_single_thread(url: &str, dir: &str) -> Result<FileDownloadResult, Error> {
-    std::fs::create_dir_all(dir)?;
+    fs::create_dir_all(dir)?;
     let filename = url.split('/').last().unwrap_or("file");
     let filepath = Path::new(dir).join(filename);
 

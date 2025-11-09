@@ -339,46 +339,50 @@ impl PaperProject {
 }
 
 #[cfg(test)]
-fn main() {
-    // Java 正式版 (查询成功, Vanilla, Release)
-    println!("--- Testing Vanilla Release (1.21.1) ---");
-    match VersionInfo::get_version_info("1.21.1", ServerType::Vanilla) {
-        Ok(info) => info.display_summary(),
-        Err(e) => eprintln!("Error: {}", e),
-    }
+mod test {
+    use super::*;
+    #[test]
+    fn main() {
+        // Java 正式版 (查询成功, Vanilla, Release)
+        println!("--- Testing Vanilla Release (1.21.1) ---");
+        match VersionInfo::get_version_info("1.21.1", ServerType::Vanilla) {
+            Ok(info) => info.display_summary(),
+            Err(e) => eprintln!("Error: {}", e),
+        }
 
-    // Java 格式错误 (应返回 Err)
-    println!("\n--- Testing Paper Invalid Format (bad-v1) ---");
-    match VersionInfo::get_version_info("bad-v1", ServerType::Paper) {
-        Ok(info) => info.display_summary(),
-        Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
-    }
+        // Java 格式错误 (应返回 Err)
+        println!("\n--- Testing Paper Invalid Format (bad-v1) ---");
+        match VersionInfo::get_version_info("bad-v1", ServerType::Paper) {
+            Ok(info) => info.display_summary(),
+            Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
+        }
 
-    // BDS 有效版本 (BDS, Release)
-    println!("\n--- Testing BDS Valid Version (1.20.70.21) ---");
-    match VersionInfo::get_version_info("1.20.70.21", ServerType::BDS) {
-        Ok(info) => info.display_summary(),
-        Err(e) => eprintln!("Error: {}", e),
-    }
+        // BDS 有效版本 (BDS, Release)
+        println!("\n--- Testing BDS Valid Version (1.20.70.21) ---");
+        match VersionInfo::get_version_info("1.20.70.21", ServerType::BDS) {
+            Ok(info) => info.display_summary(),
+            Err(e) => eprintln!("Error: {}", e),
+        }
 
-    // BDS 格式错误 (应返回 Err)
-    println!("\n--- Testing BDS Invalid Format (1.20) ---");
-    match VersionInfo::get_version_info("1.20", ServerType::BDS) {
-        Ok(info) => info.display_summary(),
-        Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
-    }
+        // BDS 格式错误 (应返回 Err)
+        println!("\n--- Testing BDS Invalid Format (1.20) ---");
+        match VersionInfo::get_version_info("1.20", ServerType::BDS) {
+            Ok(info) => info.display_summary(),
+            Err(e) => println!("Success (Expected Error): {}", e), // 捕获预期错误
+        }
 
-    // Other 类型 (直接返回, ServerType不变)
-    println!("\n--- Testing Other Type (Some-Mod-v2.0) ---");
-    match VersionInfo::get_version_info("Some-Mod-v2.0", ServerType::Other) {
-        Ok(info) => info.display_summary(),
-        Err(e) => eprintln!("Error: {}", e),
-    }
+        // Other 类型 (直接返回, ServerType不变)
+        println!("\n--- Testing Other Type (Some-Mod-v2.0) ---");
+        match VersionInfo::get_version_info("Some-Mod-v2.0", ServerType::Other) {
+            Ok(info) => info.display_summary(),
+            Err(e) => eprintln!("Error: {}", e),
+        }
 
-    // Java 快照版 (查询成功, Paper, Snapshot)
-    println!("\n--- Testing Paper Snapshot (24w08a) ---");
-    match VersionInfo::get_version_info("24w08a", ServerType::Paper) {
-        Ok(info) => info.display_summary(),
-        Err(e) => eprintln!("Error: {}", e),
+        // Java 快照版 (查询成功, Paper, Snapshot)
+        println!("\n--- Testing Paper Snapshot (24w08a) ---");
+        match VersionInfo::get_version_info("24w08a", ServerType::Paper) {
+            Ok(info) => info.display_summary(),
+            Err(e) => eprintln!("Error: {}", e),
+        }
     }
 }
