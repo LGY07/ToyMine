@@ -74,6 +74,17 @@ pub async fn start(
         )
             .into_response()
     })?;
+    // 防止重复启动
+    if task_manager.exists(project.id) {
+        return Err((
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(ErrorResponse {
+                success: false,
+                error: "The task is already running".to_string(),
+            }),
+        )
+            .into_response());
+    }
     // 创建任务
     task_manager.spawn_task(project.id, |rx, tx, stop| async move {
         let config = Arc::from(project_config);
