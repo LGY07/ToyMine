@@ -6,6 +6,7 @@ use crate::daemon::task_manager::TaskManager;
 use crate::daemon::websocket::{WebSocketManager, terminal};
 use anyhow::Error;
 use axum::body::Body;
+use axum::extract::DefaultBodyLimit;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{
@@ -15,7 +16,7 @@ use axum::{
     response::Response,
 };
 use chrono::Utc;
-use log::{debug, info};
+use log::{debug, info, warn};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,10 +62,19 @@ pub fn server(config: config::Config) -> Result<(), Error> {
 
     let rt = Runtime::new()?;
     rt.block_on(async {
-        // 每 1s 清理 WebSocket Token, TTL 为 10s
-        ws_manager
-            .clone()
-            .start_cleanup_task(Duration::from_secs(10), Duration::from_secs(1));
+        // 每 1s 清理 WebSocket Token, TTL 默认为 10s
+        if let Some(0) = config.security.websocket_ttl {
+            warn!("WebSocket Token cleaning has been disabled")
+        } else {
+            ws_manager.clone().start_cleanup_task(
+                if let Some(ttl) = config.security.websocket_ttl {
+                    Duration::from_secs(ttl as u64)
+                } else {
+                    Duration::from_secs(10)
+                },
+                Duration::from_secs(1),
+            );
+        }
 
         // 公开路由
         let public = Router::new()
@@ -93,7 +103,12 @@ pub fn server(config: config::Config) -> Result<(), Error> {
             .merge(protected)
             .with_state(config.clone())
             .layer(Extension(task_manager.clone()))
-            .layer(Extension(ws_manager.clone()));
+            .layer(Extension(ws_manager.clone()))
+            .layer(if config.security.upload_limit.unwrap_or(0) == 0 {
+                DefaultBodyLimit::disable()
+            } else {
+                DefaultBodyLimit::max(config.security.upload_limit.unwrap() * 1024)
+            });
 
         // 启动服务
         match &config.api.listen {

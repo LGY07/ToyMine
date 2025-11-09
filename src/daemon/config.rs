@@ -101,6 +101,10 @@ pub struct Security {
     pub(crate) user: isize,
     /// 宽容模式，允许使用非本用户的文件
     pub(crate) permissive: Option<bool>,
+    /// Upload 大小限制，单位 MB，缺省或 0 不限
+    pub(crate) upload_limit: Option<usize>,
+    /// WebSocket 终端 TTL，单位秒，缺省 10s，0 不限(调试用途，不建议生产环境使用)
+    pub(crate) websocket_ttl: Option<usize>,
 }
 
 /// Token 列表
@@ -213,6 +217,8 @@ impl Default for Config {
             security: Security {
                 user: Self::getuser(),
                 permissive: Some(false),
+                upload_limit: Some(2),
+                websocket_ttl: Some(10),
             },
             token: vec![Token {
                 value: Uuid::new_v4().to_string(),
