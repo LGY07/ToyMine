@@ -12,7 +12,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub(crate) struct ErrorResponse {
     pub(crate) success: bool,
     pub(crate) error: String,
@@ -38,7 +38,7 @@ pub async fn list(
 ) -> Result<Response, Response> {
     debug!("A list request was responded");
     // 定义响应
-    #[derive(Deserialize, Serialize)]
+    #[derive(Serialize)]
     struct Project {
         id: usize,
         running: bool,
@@ -46,7 +46,7 @@ pub async fn list(
         server_type: String,
         version: String,
     }
-    #[derive(Deserialize, Serialize)]
+    #[derive(Serialize)]
     struct ListResponse {
         success: bool,
         projects: Vec<Project>,
@@ -83,7 +83,7 @@ pub async fn list(
             })?;
         list_response.projects.push(Project {
             id: i.id,
-            running: task_manager.exists(i.id), // TODO
+            running: task_manager.exists(i.id),
             name: config.project.name,
             server_type: format!("{:?}", config.project.server_type),
             version: config.project.version,

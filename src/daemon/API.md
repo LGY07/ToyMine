@@ -410,9 +410,16 @@ curl -X POST http://localhost/project/{project id}/download \
 ```
 {
   "success": true,
+  "text": true
   "file": "contents of the file"
 }
 ```
+
+|    Key    |   Type   | Description                                                                                            |
+|:---------:|:--------:|:-------------------------------------------------------------------------------------------------------|
+| `success` |  `bool`  | Indicates whether the operation was successful.                                                        |
+|  `text`   |  `bool`  | Whether it is a text file.                                                                             |
+|  `file`   | `string` | The content of the file: text files are directly the content, non-text files are encoded using Base64. |
 
 ### Upload
 
