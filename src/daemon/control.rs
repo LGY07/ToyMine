@@ -45,6 +45,7 @@ pub async fn list(
         name: String,
         server_type: String,
         version: String,
+        path: PathBuf,
     }
     #[derive(Serialize)]
     struct ListResponse {
@@ -87,6 +88,7 @@ pub async fn list(
             name: config.project.name,
             server_type: format!("{:?}", config.project.server_type),
             version: config.project.version,
+            path: i.path,
         })
     }
     Ok((StatusCode::OK, Json(list_response)).into_response())

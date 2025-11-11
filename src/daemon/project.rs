@@ -3,7 +3,9 @@ use crate::daemon::config::Known;
 use crate::daemon::control::ErrorResponse;
 use crate::daemon::task_manager::TaskManager;
 use crate::daemon::websocket::WebSocketManager;
+use crate::project_manager::pre_run;
 use crate::project_manager::run::{backup_thread, server_thread};
+use anyhow::Error;
 use axum::extract::{Multipart, Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -15,9 +17,12 @@ use std::io;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::spawn;
+use tokio::task::spawn_blocking;
+use tracing::error;
 
 /// GET 启动服务器
 pub async fn start(
@@ -88,8 +93,15 @@ pub async fn start(
     // 创建任务
     task_manager.spawn_task(project.id, |rx, tx, stop| async move {
         let config = Arc::from(project_config);
-        spawn(backup_thread(config.clone(), stop.clone()));
-        spawn(server_thread(rx, tx, stop.clone(), config.clone()));
+        let config_clone = Arc::clone(&config);
+        let pre_result = spawn_blocking(move || pre_run(config_clone.as_ref())).await;
+        match pre_result {
+            Ok(_) => {
+                spawn(backup_thread(config.clone(), stop.clone()));
+                spawn(server_thread(rx, tx, stop.clone(), config.clone()));
+            }
+            Err(_) => error!("Failed to prepare project"),
+        }
     });
 
     Ok((

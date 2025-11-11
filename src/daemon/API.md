@@ -84,14 +84,16 @@ curl -X GET http://localhost/control/list \
       "running": true,
       "name": "MyServer",
       "server_type": "Vanilla",
-      "version": "1.21.10"
+      "version": "1.21.10",
+      "path": "/path/to/project1"
     },
     {
       "id": 2,
       "running": false,
       "name": "MyServer",
       "server_type": "Vanilla",
-      "version": "1.21.10"
+      "version": "1.21.10",
+      "path": "/path/to/project2"
     }
   ]
 }
@@ -111,6 +113,7 @@ Project Object:
 |    `name`     | `string` | Name of the project.            |
 | `server_type` | `string` | Type of the server.             |
 |   `version`   | `string` | Version of the server.          |
+|    `path`     | `string` | Path of the project             |                                 |
 
 ### Add
 

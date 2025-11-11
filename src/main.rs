@@ -1,6 +1,7 @@
 mod daemon;
 mod project_manager;
 
+use crate::project_manager::run::detach_server;
 use crate::project_manager::{
     CACHE_DIR, create_project, get_info, pre_run, print_info, start_server,
 };
@@ -25,10 +26,10 @@ enum Commands {
         /// Generate startup scripts
         #[arg(short, long)]
         generate: bool,
-        /// Run by the daemon process
+        /// Run by the daemon process, only the default configuration path is supported
         #[arg(short, long)]
         detach: bool,
-        /// Connect to the game running in the daemon
+        /// Connect to the game running in the daemon, only the default configuration path is supported
         #[arg(short, long)]
         attach: bool,
     },
@@ -60,11 +61,8 @@ enum Commands {
         #[arg(short, long)]
         generate: bool,
         /// Automatically configure as a systemd service
-        #[arg(long)]
+        #[arg(short, long)]
         install_systemd: bool,
-        /// Automatically configure as a OpenRC service
-        #[arg(long)]
-        install_openrc: bool,
     },
 }
 
@@ -99,10 +97,11 @@ fn main() {
         if *detach {
             #[cfg(target_family = "unix")]
             {
-                todo!();
+                detach_server();
                 return;
             }
             error!("This feature is not supported on this platform");
+            return;
         }
         // 连接到守护进程，仅支持 Unix 平台
         if *attach {
@@ -112,6 +111,7 @@ fn main() {
                 return;
             }
             error!("This feature is not supported on this platform");
+            return;
         }
         // 正常启动游戏
         match get_info() {
@@ -154,7 +154,6 @@ fn main() {
         config,
         generate,
         install_systemd,
-        install_openrc,
     } = &cli.command
     {
         if *generate {
@@ -227,10 +226,7 @@ fn main() {
 
             return;
         }
-        if *install_openrc {
-            todo!();
-            return;
-        }
+
         if let Some(config) = config {
             match daemon::server(
                 daemon::Config::from_file(config)

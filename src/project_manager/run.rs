@@ -4,12 +4,15 @@ use crate::project_manager::tools::{
     ServerType, VersionInfo, analyze_jar, check_java, get_mime_type, install_bds, install_je,
     prepare_java,
 };
-use crate::project_manager::{BACKUP_DIR, Config, LOG_DIR, WORK_DIR};
+use crate::project_manager::{BACKUP_DIR, Config, LOG_DIR, WORK_DIR, get_info};
 use anyhow::Error;
 use chrono::{Local, Utc};
 use cron_tab::AsyncCron;
 use futures::future::join_all;
-use std::path::Path;
+use home::home_dir;
+use reqwest::blocking;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::{env, fs};
@@ -21,6 +24,109 @@ use tokio::sync::{Mutex, Notify, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{signal, spawn};
 use tracing::{debug, error, info, warn};
+
+#[cfg(target_family = "unix")]
+pub fn detach_server() {
+    #[derive(Deserialize)]
+    struct Project {
+        id: usize,
+        running: bool,
+        name: String,
+        server_type: String,
+        version: String,
+        path: PathBuf,
+    }
+    #[derive(Deserialize)]
+    struct ListResponse {
+        success: bool,
+        projects: Vec<Project>,
+    }
+    #[derive(Serialize)]
+    struct AddRequest {
+        path: PathBuf,
+    }
+
+    // 检查当前项目
+    get_info().expect("Failed to get project info");
+
+    // Work dir 地址
+    let work_dir = home_dir().unwrap().join(".pacmine");
+
+    // 创建 reqwest 客户端
+    let client = blocking::Client::builder()
+        .unix_socket(work_dir.join("api.sock"))
+        .build()
+        .expect("Failed to build client");
+
+    // 检查运行状态
+    client
+        .get("http://localhost/control/status")
+        .send()
+        .expect("Push to the server failed, make sure the server is running");
+
+    // 偷取 Token 😁
+    let daemon_config = crate::daemon::Config::from_file(work_dir.join("config.toml"))
+        .expect("Failed to load daemon config");
+    let token = &daemon_config
+        .token
+        .iter()
+        .find(|x| x.expiration.is_none_or(|exp| exp > Utc::now()))
+        .expect("Failed to find token in daemon config")
+        .value;
+
+    // 获取项目列表
+    let res = client
+        .get("http://localhost/control/list")
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .expect("Push to the server failed, an unknown error occurred.");
+    let list: ListResponse = res.json().expect("Failed to parse json");
+
+    // 获取项目 ID
+    let project_id = if let Some(project) = list
+        .projects
+        .iter()
+        .find(|x| x.path == env::current_dir().expect("Failed to get current dir"))
+    {
+        project.id
+    } else {
+        // 添加项目
+        client
+            .post("http://localhost/control/add")
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&AddRequest {
+                path: env::current_dir().expect("Failed to get current dir"),
+            })
+            .send()
+            .expect("Push to the server failed, an unknown error occurred");
+        // 测试添加
+        let res = client
+            .get("http://localhost/control/list")
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .expect("Push to the server failed, an unknown error occurred");
+        let list: ListResponse = res.json().expect("Failed to parse json");
+        list.projects
+            .iter()
+            .find(|x| x.path == env::current_dir().expect("Failed to get current dir"))
+            .expect("Failed to add project to daemon")
+            .id
+    };
+
+    // 运行项目
+    let res = client
+        .get(format!("http://localhost/project/{}/start", project_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .expect("Push to the server failed, an unknown error occurred");
+    debug!("{:?}", res);
+
+    if res.status().is_success() {
+        info!("Push to the server successfully");
+    } else {
+        error!("Failed to push to the server: {:?}", res.text());
+    }
+}
 
 /// 启动服务器
 pub fn start_server(config: Config) -> Result<(), Error> {
