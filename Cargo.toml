@@ -41,6 +41,7 @@ tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-subscriber = "0.3"
 futures-util = "0.3"
 reqwest-websocket = "0.5"
+html2text = "0.16"
 
 [profile.release]
 strip = true

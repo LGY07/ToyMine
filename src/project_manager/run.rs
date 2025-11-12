@@ -9,8 +9,9 @@ use anyhow::Error;
 use chrono::{Local, Utc};
 use cron_tab::AsyncCron;
 use futures::future::join_all;
+use std::io::Cursor;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::{env, fs};
@@ -253,6 +254,9 @@ pub async fn server_thread(
     stop: Arc<Notify>,
     config: Arc<Config>,
 ) -> Result<(), Error> {
+    // 同意 https://aka.ms/MinecraftEULA
+    accept_eula().await;
+
     // 启动子进程
     let mut child = if let ServerType::BDS = config.as_ref().project.server_type {
         info!("Server starting...");
@@ -631,4 +635,47 @@ pub fn pre_run(config: &Config) -> Result<(), Error> {
     // 准备完成
     debug!("All the work before operation is ready");
     Ok(())
+}
+
+/// 同意 https://aka.ms/MinecraftEULA
+async fn accept_eula() {
+    let path = PathBuf::from("eula.txt");
+    info!("Start the service end as agreed to the content of https://aka.ms/MinecraftEULA");
+
+    let eula_content = reqwest::Client::new()
+        .get("https://aka.ms/MinecraftEULA")
+        .send();
+
+    if path.is_file() {
+        let mut eula_file = tokio::fs::read_to_string(&path)
+            .await
+            .expect("Failed to open eula.txt");
+        eula_file = eula_file
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("eula=") {
+                    "eula=true".to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        tokio::fs::write(&path, eula_file)
+            .await
+            .expect("Failed to edit eula.txt");
+    } else {
+        tokio::fs::write(&path, "eula=true\n")
+            .await
+            .expect("Failed to edit eula.txt");
+    }
+
+    let html = match eula_content.await {
+        Ok(v) => v.text().await.unwrap_or_else(|e| e.to_string()),
+        Err(e) => e.to_string(),
+    };
+
+    let text = html2text::from_read(Cursor::new(html), 80).unwrap_or_else(|e| e.to_string());
+
+    println!("{}", text)
 }
