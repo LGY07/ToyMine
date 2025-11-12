@@ -5,22 +5,19 @@ use chrono::Utc;
 use futures::StreamExt;
 use futures_util::SinkExt;
 use home::home_dir;
+use reqwest_websocket::{Message, RequestBuilderExt, WebSocket};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, stdin};
-use tokio::net::{TcpStream, UnixStream};
 use tokio::runtime::Runtime;
 use tokio::signal::ctrl_c;
 use tokio::sync::mpsc;
 use tokio::{select, spawn};
-use tokio_tungstenite::{WebSocketStream, accept_async};
-use tracing::{error, info};
-use tungstenite::{Message, Utf8Bytes};
+use tracing::{debug, error, info};
 
 struct Connection {
     token: String,
-    listen: ApiAddr,
     project_id: usize,
     running: bool,
     tcp_addr: String,
@@ -133,7 +130,6 @@ impl Connection {
 
         Ok(Connection {
             token: token.to_owned(),
-            listen: daemon_config.api.listen,
             project_id,
             tcp_addr,
             running,
@@ -178,62 +174,52 @@ pub fn websocket_client() {
     struct ConnectResponse {
         path: String,
     }
-    Runtime::new()
+    match Runtime::new()
         .expect("Failed to create runtime")
         .block_on(async {
-            let connection = Connection::new()
-                .await
-                .expect("Failed to create connection");
+            let connection = Connection::new().await?;
             if !connection.running {
-                info!("Server is not running");
-                return;
+                return Err(Error::msg("Server is not running"));
             }
+
             let ws_path = connection
                 .http_client
-                .get(&connection.tcp_addr)
+                .get(format!(
+                    "http://{}/project/{}/connect",
+                    &connection.tcp_addr, connection.project_id
+                ))
+                .header("Authorization", format!("Bearer {}", connection.token))
                 .send()
-                .await
-                .expect("Connect to the server failed, an unknown error occurred")
+                .await?
                 .json::<ConnectResponse>()
-                .await
-                .expect("Connect to the server failed, an unknown error occurred")
+                .await?
                 .path;
 
-            match connection.listen {
-                ApiAddr::UnixSocket(v) => {
-                    #[cfg(not(target_family = "unix"))]
-                    {
-                        error!("Platform error: Unix Socket is not supported");
-                        return;
-                    }
+            debug!("Connect to: {}{}", &connection.tcp_addr, &ws_path);
 
-                    #[cfg(target_family = "unix")]
-                    let stream =
-                        UnixStream::connect(format!("ws+unix://{}{}", v.display(), ws_path))
-                            .await
-                            .expect("Failed to connect to server");
-                    let ws_stream = accept_async(stream)
-                        .await
-                        .expect("Failed to accept connection");
-                    handle_websocket_and_terminal(ws_stream).await;
-                }
-                ApiAddr::Tcp(v) => {
-                    let stream = TcpStream::connect(format!("ws://{}{}", v, ws_path))
-                        .await
-                        .expect("Failed to connect to server");
-                    let ws_stream = accept_async(stream)
-                        .await
-                        .expect("Failed to accept connection");
-                    handle_websocket_and_terminal(ws_stream).await;
-                }
-            };
-        })
+            let ws_client = connection
+                .http_client
+                .get(format!("ws://{}{}", connection.tcp_addr, ws_path))
+                .upgrade()
+                .send()
+                .await?;
+
+            debug!("Build WebSocket client successfully");
+
+            let websocket = ws_client.into_websocket().await?;
+
+            handle_websocket_and_terminal(websocket).await;
+
+            Ok(())
+        }) {
+        Ok(_) => (),
+        Err(e) => {
+            error!("{}", e)
+        }
+    }
 }
 
-async fn handle_websocket_and_terminal<T>(ws_stream: WebSocketStream<T>)
-where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
+async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
     // 通道：终端输入 -> WebSocket
     let (tx, mut rx) = mpsc::channel::<String>(32);
 
@@ -269,9 +255,9 @@ where
                 msg = read.next() => {
                     match msg {
                         Some(Ok(Message::Text(s))) => {
-                            println!("WS <- {}", s);
+                            println!("{}", s);
                         }
-                        Some(Ok(Message::Close(_))) => break,
+                        Some(Ok(Message::Close { code: _, reason: _ })) => break,
                         Some(_) => {},
                         None => break,
                     }
@@ -287,7 +273,7 @@ where
             maybe_msg = rx.recv() => {
                 match maybe_msg {
                     Some(msg) => {
-                        if let Err(e) = write.send(Message::Text(Utf8Bytes::from(msg))).await {
+                        if let Err(e) = write.send(Message::Text(msg)).await {
                             eprintln!("Send message failed: {}", e);
                             break;
                         }
