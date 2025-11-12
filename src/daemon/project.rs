@@ -5,7 +5,6 @@ use crate::daemon::task_manager::TaskManager;
 use crate::daemon::websocket::WebSocketManager;
 use crate::project_manager::pre_run;
 use crate::project_manager::run::{backup_thread, server_thread};
-use anyhow::Error;
 use axum::extract::{Multipart, Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,7 +16,6 @@ use std::io;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::spawn;
@@ -524,7 +522,7 @@ pub async fn connect(
 
     Ok(Json(ConnectResponse {
         success: true,
-        path: format!("/ws/{}", uuid).to_string(),
+        path: format!("/ws/{}", uuid.await).to_string(),
     })
     .into_response())
 }

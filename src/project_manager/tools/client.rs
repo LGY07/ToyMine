@@ -2,13 +2,13 @@ use crate::daemon::config::ApiAddr;
 use crate::project_manager::get_info;
 use anyhow::Error;
 use chrono::Utc;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt};
 use home::home_dir;
 use reqwest_websocket::{Message, RequestBuilderExt, WebSocket};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
-use tokio::io::{AsyncReadExt, stdin};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
 use tokio::runtime::Runtime;
 use tokio::signal::ctrl_c;
 use tokio::sync::mpsc;
@@ -252,7 +252,8 @@ async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
                 msg = read.next() => {
                     match msg {
                         Some(Ok(Message::Text(s))) => {
-                            println!("{}", s);
+                            print!("{}", s);
+                            let _ = stdout().flush().await;
                         }
                         Some(Ok(Message::Close { code: _, reason: _ })) => break,
                         Some(_) => {},
@@ -271,7 +272,8 @@ async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
                 match maybe_msg {
                     Some(msg) => {
                         if let Err(e) = write.send(Message::Text(msg)).await {
-                            eprintln!("Send message failed: {}", e);
+                            eprint!("Send message failed: {}", e);
+                            let _ = stdout().flush().await;
                             break;
                         }
                     }

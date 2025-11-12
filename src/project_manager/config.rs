@@ -364,7 +364,7 @@ impl Java {
             std::env::consts::ARCH
         ));
         debug!("{:?}", java_home_path);
-        if check_java(java_home_path.join("bin").join("java").as_ref()) {
+        if check_java(java_home_path.as_ref()) {
             Ok(java_home_path.join("bin").join("java"))
         } else {
             Err(Error::msg("Java cannot be found"))

@@ -66,14 +66,17 @@ pub fn server(config: config::Config) -> Result<(), Error> {
         if let Some(0) = config.security.websocket_ttl {
             warn!("WebSocket Token cleaning has been disabled")
         } else {
-            ws_manager.clone().start_cleanup_task(
-                if let Some(ttl) = config.security.websocket_ttl {
-                    Duration::from_secs(ttl as u64)
-                } else {
-                    Duration::from_secs(10)
-                },
-                Duration::from_secs(1),
-            );
+            ws_manager
+                .clone()
+                .start_cleanup_task(
+                    if let Some(ttl) = config.security.websocket_ttl {
+                        Duration::from_secs(ttl as u64)
+                    } else {
+                        Duration::from_secs(10)
+                    },
+                    Duration::from_secs(1),
+                )
+                .await;
         }
 
         // 公开路由
