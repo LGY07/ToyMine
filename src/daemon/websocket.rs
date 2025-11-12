@@ -87,11 +87,11 @@ async fn ws_handler(
     task_manager: Arc<TaskManager<String, String>>,
     ws_manager: Arc<WebSocketManager>,
 ) -> impl IntoResponse {
-    socket.on_upgrade(move |mut ws: WebSocket| async move {
-        // 标记已连接
+    socket.on_upgrade(move |ws: WebSocket| async move {
         ws_manager.mark_connected(&uuid).await;
 
-        let (mut ws_tx, mut ws_rx) = ws.split();
+        let (ws_tx, mut ws_rx) = ws.split();
+        let ws_tx = Arc::new(Mutex::new(ws_tx));
 
         let to_task_tx = match task_manager.get_sender(task_id) {
             Some(tx) => tx,
@@ -102,16 +102,48 @@ async fn ws_handler(
             None => return,
         };
 
+        // 监控 task 退出（tx drop）
+        {
+            let tx_clone = to_task_tx.clone();
+            let ws_tx_clone = ws_tx.clone();
+            tokio::spawn(async move {
+                tx_clone.closed().await;
+                let mut tx = ws_tx_clone.lock().await;
+                let _ = tx.send(Message::Close(None)).await;
+                debug!("Task {} tx dropped -> sent WebSocket Close", task_id);
+            });
+        }
+
+        // 监控 task 退出（rx drop）
+        {
+            let from_task_rx_arc_clone = from_task_rx_arc.clone();
+            let ws_tx_clone = ws_tx.clone();
+            tokio::spawn(async move {
+                // 等待任务的 rx 被关闭
+                loop {
+                    {
+                        let rx = from_task_rx_arc_clone.lock().await;
+                        if rx.is_closed() {
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+
+                let mut tx = ws_tx_clone.lock().await;
+                let _ = tx.send(Message::Close(None)).await;
+                debug!("Task {} rx dropped -> sent WebSocket Close", task_id);
+            });
+        }
+
         // 任务 -> 客户端
+        let ws_tx_clone = ws_tx.clone();
         let from_task_rx = from_task_rx_arc.clone();
         let send_task = tokio::spawn(async move {
             let mut rx = from_task_rx.lock().await;
             while let Some(msg) = rx.recv().await {
-                if ws_tx
-                    .send(Message::Text(Utf8Bytes::from(msg)))
-                    .await
-                    .is_err()
-                {
+                let mut tx = ws_tx_clone.lock().await;
+                if tx.send(Message::Text(Utf8Bytes::from(msg))).await.is_err() {
                     debug!("Client disconnected while sending from task {}", task_id);
                     break;
                 }
@@ -136,7 +168,6 @@ async fn ws_handler(
         }
 
         debug!("WebSocket for task {} disconnected", task_id);
-        // 客户端断开，开始 TTL 计时
         ws_manager.mark_disconnected(&uuid).await;
     })
 }

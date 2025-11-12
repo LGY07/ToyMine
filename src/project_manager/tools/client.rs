@@ -173,47 +173,47 @@ pub fn websocket_client() {
     struct ConnectResponse {
         path: String,
     }
-    match Runtime::new()
-        .expect("Failed to create runtime")
-        .block_on(async {
-            let connection = Connection::new().await?;
-            if !connection.running {
-                return Err(Error::msg("Server is not running"));
-            }
+    let rt = Runtime::new().expect("Failed to create runtime");
+    match rt.block_on(async {
+        let connection = Connection::new().await?;
+        if !connection.running {
+            return Err(Error::msg("Server is not running"));
+        }
 
-            let ws_path = connection
-                .http_client
-                .get(format!(
-                    "http://{}/project/{}/connect",
-                    &connection.tcp_addr, connection.project_id
-                ))
-                .header("Authorization", format!("Bearer {}", connection.token))
-                .send()
-                .await?
-                .json::<ConnectResponse>()
-                .await?
-                .path;
+        let ws_path = connection
+            .http_client
+            .get(format!(
+                "http://{}/project/{}/connect",
+                &connection.tcp_addr, connection.project_id
+            ))
+            .header("Authorization", format!("Bearer {}", connection.token))
+            .send()
+            .await?
+            .json::<ConnectResponse>()
+            .await?
+            .path;
 
-            debug!("Connect to: {}{}", &connection.tcp_addr, &ws_path);
+        debug!("Connect to: {}{}", &connection.tcp_addr, &ws_path);
 
-            let ws_client = connection
-                .http_client
-                .get(format!("ws://{}{}", connection.tcp_addr, ws_path))
-                .upgrade()
-                .send()
-                .await?;
+        let ws_client = connection
+            .http_client
+            .get(format!("ws://{}{}", connection.tcp_addr, ws_path))
+            .upgrade()
+            .send()
+            .await?;
 
-            debug!("Build WebSocket client successfully");
+        debug!("Build WebSocket client successfully");
 
-            handle_websocket_and_terminal(ws_client.into_websocket().await?).await;
+        handle_websocket_and_terminal(ws_client.into_websocket().await?).await;
 
-            Ok(())
-        }) {
-        Ok(_) => (),
+        Ok(())
+    }) {
+        Ok(_) => {}
         Err(e) => {
             error!("{}", e)
         }
-    }
+    };
+    rt.shutdown_background()
 }
 
 async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
@@ -226,7 +226,10 @@ async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
         let mut stdin = stdin();
         loop {
             select! {
-                _ = ctrl_c() => break,
+                _ = ctrl_c() => {
+                    info!("The server will continue to run in the background");
+                    return
+                },
                 result = stdin.read(&mut buf) => {
                     match result {
                         Ok(n) if n > 0 => {
@@ -248,16 +251,19 @@ async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
     let ws_read_handle = spawn(async move {
         loop {
             select! {
-                _ = ctrl_c() => break,
+                _ = ctrl_c() => {
+                    info!("The server will continue to run in the background");
+                    return
+                },
                 msg = read.next() => {
                     match msg {
                         Some(Ok(Message::Text(s))) => {
                             print!("{}", s);
                             let _ = stdout().flush().await;
                         }
-                        Some(Ok(Message::Close { code: _, reason: _ })) => break,
-                        Some(_) => {},
-                        None => break,
+                        Some(Ok(Message::Close { code: _, reason: _ })) => return,
+                        Some(_) => return,
+                        None => return,
                     }
                 }
             }
@@ -267,23 +273,21 @@ async fn handle_websocket_and_terminal(ws_stream: WebSocket) {
     // ================== WebSocket 写线程 ==================
     loop {
         select! {
-            _ = ctrl_c() => break,
+            _ = ctrl_c() => {
+                info!("The server will continue to run in the background");
+                return
+            },
             maybe_msg = rx.recv() => {
                 match maybe_msg {
                     Some(msg) => {
                         if let Err(e) = write.send(Message::Text(msg.trim().to_string())).await {
-                            eprint!("Send message failed: {}", e);
-                            let _ = stdout().flush().await;
-                            break;
+                            debug!("Send message failed: {}", e);
+                            return;
                         }
                     }
-                    None => break, // 通道关闭，退出
+                    None => return, // 通道关闭，退出
                 }
             }
         }
     }
-
-    // 等待所有任务结束
-    let _ = input_handle.await;
-    let _ = ws_read_handle.await;
 }
