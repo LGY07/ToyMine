@@ -1,6 +1,6 @@
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -8,7 +8,7 @@ use tokio::select;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, timeout};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, trace, warn};
 

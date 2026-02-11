@@ -1,7 +1,7 @@
 use crate::core::backup::BackupCfg;
-use crate::core::mc_server::base::McServer;
 use crate::core::mc_server::McType;
 use crate::core::mc_server::McType::Java;
+use crate::core::mc_server::base::McServer;
 use anyhow::Result;
 use erased_serde::Deserializer;
 use serde::{Deserialize, Serialize};

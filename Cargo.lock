@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "NeoPacMine"
+name = "ToyMine"
 version = "0.1.0"
 dependencies = [
  "anyhow",

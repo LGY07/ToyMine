@@ -3,10 +3,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use tokio::select;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::{JoinHandle, JoinSet};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace};
 
