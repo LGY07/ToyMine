@@ -34,6 +34,9 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+      
+      - name: Install rust-fmt
+        run : rustup component add rustfmt
 
       - name: Check formatting
         run: cargo fmt --all -- --check
