@@ -1,23 +1,48 @@
-use crate::project_manager::{CACHE_DIR, PASSWORD};
-use anyhow::Error;
+use crate::core::backup::BackupPath;
+use anyhow::{Context, Result};
 use rustic_backend::BackendOptions;
 use rustic_core::{
     BackupOptions, CheckOptions, ConfigOptions, KeyOptions, LocalDestination, LsOptions, PathList,
     Repository, RepositoryOptions, RestoreOptions, SnapshotOptions,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use tracing::debug;
 
-/// 初始化备份仓库
-pub fn backup_init_repo(path: &str) -> Result<(), Error> {
+// 不加密的备份
+const PASSWORD: &str = "";
+
+pub fn run_backup(cfg: BackupPath, tag: String) -> Result<()> {
+    let cache_dir = PathBuf::from_str(".pacmine")?.join("cache");
+
+    // 初始化仓库
+    if backup_check_repo(&cfg.repository, &cache_dir).is_err() {
+        backup_init_repo(&cfg.repository, &cache_dir)
+            .context("Failed to init backup repository")?;
+    }
+
+    // 运行备份
+    backup_new_snap(
+        cfg.repository.as_path(),
+        tag.as_str(),
+        &cfg.source,
+        cache_dir.as_path(),
+    )
+    .context("Failed to backup")?;
+    Ok(())
+}
+
+fn backup_init_repo(path: &Path, cache: &Path) -> Result<()> {
     debug!("backup_init_repo : Initialize backup repository");
 
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path.to_str().expect("Incorrect path"))
+        .to_backends()?;
 
     // Init repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(format!("{}/backup", CACHE_DIR))
+        .cache_dir(cache.join("backup"))
         .password(PASSWORD);
     let key_opts = KeyOptions::default();
     let config_opts = ConfigOptions::default();
@@ -28,15 +53,17 @@ pub fn backup_init_repo(path: &str) -> Result<(), Error> {
 }
 
 /// 创建快照
-pub fn backup_new_snap(path: &str, tag: &str, source: Vec<PathBuf>) -> Result<(), Error> {
+fn backup_new_snap(path: &Path, tag: &str, source: &Vec<PathBuf>, cache: &Path) -> Result<()> {
     debug!("backup_new_snap : Create new snapshot");
 
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path.to_str().expect("Incorrect path"))
+        .to_backends()?;
 
     // Open repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(format!("{}/backup", CACHE_DIR))
+        .cache_dir(cache.join("backup"))
         .password(PASSWORD);
 
     let repo = Repository::new(&repo_opts, &backends)?
@@ -55,15 +82,17 @@ pub fn backup_new_snap(path: &str, tag: &str, source: Vec<PathBuf>) -> Result<()
 }
 
 /// 检查仓库
-pub fn backup_check_repo(path: &str) -> Result<(), Error> {
+fn backup_check_repo(path: &Path, cache: &Path) -> Result<()> {
     debug!("backup_check_repo : Check backup repository");
 
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path.to_str().expect("Incorrect path"))
+        .to_backends()?;
 
     // Open repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(format!("{}/backup", CACHE_DIR))
+        .cache_dir(cache.join("backup"))
         .password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?.open()?;
 
@@ -74,15 +103,17 @@ pub fn backup_check_repo(path: &str) -> Result<(), Error> {
 }
 
 /// 恢复快照
-pub fn backup_restore_snap(path: &str, snap: &str, destination: &str) -> Result<(), Error> {
+fn backup_restore_snap(path: &Path, snap: &str, destination: &str, cache: &Path) -> Result<()> {
     debug!("backup_restore_snap : Restore a snapshot");
 
     // Initialize Backends
-    let backends = BackendOptions::default().repository(path).to_backends()?;
+    let backends = BackendOptions::default()
+        .repository(path.to_str().expect("Incorrect path"))
+        .to_backends()?;
 
     // Open repository
     let repo_opts = RepositoryOptions::default()
-        .cache_dir(format!("{}/backup", CACHE_DIR))
+        .cache_dir(cache.join("backup"))
         .password(PASSWORD);
     let repo = Repository::new(&repo_opts, &backends)?
         .open()?

@@ -1,15 +1,19 @@
-use crate::project_manager::tools::{ServerType, VersionInfo};
-use anyhow::Error;
+// 快速判断部分已知的类型
+
+use crate::core::mc_server::base::McVersion;
+
+use crate::core::mc_server::{McChannel, McType};
+use anyhow::{Error, Result};
 use infer;
 use regex::Regex;
 use std::fs::File;
 use std::io::{Cursor, Read};
+use std::num::ParseIntError;
 use std::path::Path;
 use tracing::debug;
 use zip::read::{ZipArchive, ZipFile};
 
-#[derive(Debug)]
-pub struct JarInfo {
+struct JarInfo {
     pub main_class: String,
     pub java_version: u16, // 映射后的 Java 版本
 }
@@ -23,7 +27,7 @@ pub fn get_mime_type(path: &Path) -> String {
 }
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
-pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Error> {
+fn analyze_jar(jar_path: &Path) -> Result<JarInfo> {
     // 打开文件
     let file = File::open(jar_path)?;
     // 读取 zip
@@ -83,7 +87,7 @@ pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo, Error> {
 }
 
 /// 分析 server.jar 文件，尝试获得游戏版本
-pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
+pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
     // 获取 JarInfo 和读取 Zip 文件
     let info = analyze_jar(jar_path)?;
     let file = File::open(jar_path)?;
@@ -110,18 +114,13 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
         let info_list: Vec<&str> = info_list.split("-").collect();
         // 分析服务端类型
         let server_type = match info_list[0].trim() {
-            "server" => ServerType::Vanilla,
-            "paper" => ServerType::Paper,
-            "folia" => ServerType::Folia,
-            "purpur" => ServerType::Purpur,
-            "leaves" => ServerType::Leaves,
-            _ => ServerType::Other,
+            "server" => "vanilla",
+            t => t,
         };
 
         // 解析版本号
         if info_list.len() == 2 {
-            let version_info = VersionInfo::get_version_info(info_list[1].trim(), server_type)?;
-            return Ok(version_info);
+            return Ok(parse_version(info_list[1].trim(), server_type));
         }
     }
 
@@ -153,8 +152,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
             let end_quote = rest[1..].find('"').expect("Problematic JSON.");
             let version = &rest[1..1 + end_quote];
             // 解析版本号，默认当成 Vanilla
-            let version_info = VersionInfo::get_version_info(version, ServerType::Vanilla)?;
-            return Ok(version_info);
+            return Ok(parse_version(version, "Vanilla"));
         }
     };
 
@@ -182,8 +180,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
             if let Some((key, value)) = line.split_once('=') {
                 if let "version" = key.trim() {
                     // 解析版本号
-                    let version_info = VersionInfo::get_version_info(value, ServerType::Paper)?;
-                    return Ok(version_info);
+                    return Ok(parse_version(value, "Paper"));
                 }
             }
         }
@@ -203,8 +200,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)?;
-            return Ok(version_info);
+            return Ok(parse_version(m.as_str(), "Vanilla"));
         }
     }
     // 创建正则表达式，假设为 x.x
@@ -212,8 +208,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<VersionInfo, Error> {
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            let version_info = VersionInfo::get_version_info(m.as_str(), ServerType::Vanilla)?;
-            return Ok(version_info);
+            return Ok(parse_version(m.as_str(), "Vanilla"));
         }
     }
 
@@ -285,4 +280,25 @@ fn parse_class_strings_from_zip(file: &mut ZipFile<&File>) -> Vec<String> {
     }
 
     strings
+}
+
+fn parse_version(version_str: &str, version_type: &str) -> McVersion {
+    let chanel = match version_str
+        .split('.')
+        .map(|x| x.parse::<u8>())
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(v) => {
+            if v.len() == 3 {
+                McChannel::Release(v[0], v[1], v[2])
+            } else {
+                McChannel::Snapshot(version_str.trim().to_string())
+            }
+        }
+        Err(_) => McChannel::Snapshot(version_str.trim().to_string()),
+    };
+    McVersion {
+        server_type: McType::Java(version_type.to_string()),
+        channel: chanel,
+    }
 }
