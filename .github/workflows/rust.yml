@@ -49,4 +49,4 @@ jobs:
         with:
           name: ToyMine-${{ runner.os }}
           path: |
-            target/release/PacMine${{ runner.os == 'Windows' && '.exe' || '' }}
+            target/release/ToyMine${{ runner.os == 'Windows' && '.exe' || '' }}
