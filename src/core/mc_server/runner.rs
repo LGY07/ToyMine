@@ -1,16 +1,17 @@
 use std::process::{ExitStatus, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::select;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, timeout};
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::core::hooks::hooked_channel::{HookedReceiver, HookedSender};
 use crate::core::mc_server::base::McServer;
@@ -19,7 +20,7 @@ use crate::core::task::TaskManager;
 pub struct Runner {
     pub id: usize,
     pub input: Arc<HookedSender<String>>,
-    pub output: Mutex<HookedReceiver<String>>,
+    pub output: Arc<Mutex<HookedReceiver<String>>>,
     stop: Mutex<Option<tokio::sync::oneshot::Sender<Duration>>>,
     exit: Mutex<tokio::sync::oneshot::Receiver<ExitStatus>>,
 }
@@ -70,14 +71,33 @@ impl Runner {
             .await?;
 
         // Child stdout
+        let stdout_rx = Arc::new(Mutex::new(stdout_rx));
+        let stdout_rx_clone = Arc::clone(&stdout_rx);
         task_manager
             .spawn_with_cancel(async move |t| {
                 let mut lines = BufReader::new(child_stdout).lines();
-                loop {
+                'outer: loop {
                     select! {
                         Ok(Some(line)) = lines.next_line() => {
-                            if stdout_tx.send(line).await.is_err() {
-                            break;
+                            let mut line = Some(line);
+                            'inner: loop{
+                                match stdout_tx.try_send(line.take().unwrap()){
+                                    // 缓冲满时丢弃最早的输出
+                                    Err(TrySendError::Full(v)) => {
+                                        debug!("The channel buffer is full. Attempting to clear it.");
+                                        match stdout_rx_clone.try_lock(){
+                                            Ok(mut g) => {
+                                                let _ = g.try_recv();
+                                            }
+                                            Err(e) => {
+                                                error!("Channel blockage: {e}")
+                                            }
+                                        }
+                                        line = Some(v)
+                                    }
+                                    Err(TrySendError::Closed(_)) => break 'outer,
+                                    Ok(_) => break 'inner
+                                }
                             }
                         }
                         _ = t.cancelled() => {
@@ -135,7 +155,7 @@ impl Runner {
         Ok(Self {
             id,
             input: stdin_tx,
-            output: Mutex::new(stdout_rx),
+            output: stdout_rx,
             stop: Mutex::new(Some(stop_tx)),
             exit: Mutex::new(exit_rx),
         })
