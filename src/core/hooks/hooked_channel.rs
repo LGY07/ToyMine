@@ -1,5 +1,5 @@
 use tokio::sync::mpsc::error::{SendError, TryRecvError, TrySendError};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tracing::trace;
 
 pub struct HookedSender<T> {
