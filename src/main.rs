@@ -8,7 +8,7 @@ mod runtime;
 mod versions;
 
 use crate::core::config::project::McServerConfig;
-use crate::core::mc_server::runner::Runner;
+use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::core::task::TaskManager;
 use crate::versions::vanilla::Vanilla;
 use clap::{Parser, Subcommand};
@@ -80,7 +80,8 @@ async fn main() -> anyhow::Result<()> {
         let server_clone = Arc::clone(&server);
         task_manager
             .spawn_with_cancel(async move |t| {
-                server_clone.sync_channel_stdio(t).await?;
+                sync_channel_stdio(server_clone.input.clone(), server_clone.output.clone(), t)
+                    .await?;
                 Ok(())
             })
             .await?;
