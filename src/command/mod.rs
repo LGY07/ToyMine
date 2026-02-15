@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, channel};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error};

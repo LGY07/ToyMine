@@ -1,17 +1,17 @@
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::select;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::time::{sleep, timeout};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use tokio::process::Child;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
 
