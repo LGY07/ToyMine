@@ -1,4 +1,3 @@
-use futures::StreamExt;
 pub mod raw;
 
 use std::collections::HashMap;
@@ -11,6 +10,7 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::stream;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error};
