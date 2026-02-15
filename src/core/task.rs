@@ -103,11 +103,10 @@ impl TaskManager {
     }
 
     /// 优雅 shutdown TaskManager
-    pub async fn shutdown(self) {
+    pub async fn shutdown(&self) {
         trace!("Shutdown: Start");
         self.cancel_token.cancel();
         self.tasks.lock().await.shutdown().await;
-        let _ = self.manager.await;
         debug!("Shutdown: Finish");
     }
 }

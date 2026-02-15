@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     // 参数解析
     let cli = Cli::parse();
     // 创建任务管理器
-    let task_manager = TaskManager::new();
+    let task_manager = Arc::new(TaskManager::new());
     // 尝试从当前目录获取配置文件
     let cfg = if PathBuf::from("PacMine.toml").is_file() {
         match McServerConfig::open("PacMine.toml".as_ref()).await {
@@ -75,13 +75,22 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let server = Vanilla::default();
+        let mut command_loader = command::CommandLoader::new();
 
         let server = Arc::new(Runner::spawn_server(&server, &task_manager).await?);
+        command_loader.register(&server, vec![Box::new(command::raw::ExamplePlugin)])?;
         let server_clone = Arc::clone(&server);
+        let task_manager_clone = Arc::clone(&task_manager);
         task_manager
             .spawn_with_cancel(async move |t| {
-                sync_channel_stdio(server_clone.input.clone(), server_clone.output.clone(), t)
-                    .await?;
+                sync_channel_stdio(
+                    server_clone.input.clone(),
+                    command_loader
+                        .load(server_clone.clone().as_ref(), task_manager_clone.as_ref())
+                        .await?,
+                    t,
+                )
+                .await?;
                 Ok(())
             })
             .await?;

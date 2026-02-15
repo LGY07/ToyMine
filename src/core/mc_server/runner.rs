@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -57,7 +58,6 @@ impl Runner {
         ) -> tokio::io::Result<()> {
             trace!("Inputs sending: {}", line.as_str());
             child_stdin.write_all(line.as_bytes()).await?;
-            child_stdin.write_all(b"\n").await?;
             Ok(())
         }
 
@@ -139,7 +139,7 @@ impl Runner {
                 Ok(())
             })
             .await?;
-        // Child stdin -> tx spawn
+        // Child stdout -> tx spawn
         task_manager
             .spawn_with_cancel(async move |t| {
                 loop {
@@ -205,7 +205,7 @@ pub async fn sync_channel_stdio(
 
     let mut pump_stdin = async || match stdin.next_line().await {
         Ok(Some(line)) => {
-            if input.send(line).await.is_err() {
+            if input.send(line.add("\n")).await.is_err() {
                 error!("stdin -> channel failed: receiver dropped");
             }
         }
