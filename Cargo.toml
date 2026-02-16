@@ -15,7 +15,7 @@ erased-serde = "0.4"
 futures = "0.3"
 infer = "0.19"
 regex = "1.12"
-rustic_backend = "0.5"
+rustic_backend = "0.6"
 rustic_core = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
