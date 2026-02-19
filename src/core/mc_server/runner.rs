@@ -1,19 +1,19 @@
 use std::ops::Add;
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::time::{sleep, timeout};
 
-use crate::core::mc_server::base::McServer;
 use crate::TASK_MANAGER;
-use anyhow::{anyhow, Context, Result};
+use crate::core::mc_server::base::McServer;
+use anyhow::{Context, Result, anyhow};
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
@@ -238,14 +238,14 @@ pub async fn sync_channel_stdio(
 /// 确保程序优雅退出
 mod fuck_tokio {
     use crate::TASK_MANAGER;
-    use futures::task::AtomicWaker;
     use futures::Stream;
+    use futures::task::AtomicWaker;
     use std::io::BufRead;
     use std::io::BufReader;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::TryRecvError;
-    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::mpsc::{Receiver, Sender, channel};
     use std::sync::{Arc, OnceLock};
     use std::task::{Context, Poll};
     use std::thread::JoinHandle;
