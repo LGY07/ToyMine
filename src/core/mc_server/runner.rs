@@ -5,19 +5,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Child;
 use tokio::select;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::time::{sleep, timeout};
 
-use anyhow::{Context, anyhow};
-use tokio::process::Child;
-use tokio::sync::mpsc::{Receiver, Sender, channel};
+use crate::TASK_MANAGER;
+use crate::core::mc_server::base::McServer;
+use anyhow::{Context, Result, anyhow};
+use futures::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
-
-use crate::core::mc_server::base::McServer;
-use crate::core::task::TaskManager;
 
 pub struct Runner {
     pub id: usize,
@@ -29,10 +28,7 @@ pub struct Runner {
 
 impl Runner {
     /// 启动服务器
-    pub async fn spawn_server(
-        server: &dyn McServer,
-        task_manager: &TaskManager,
-    ) -> anyhow::Result<Self> {
+    pub async fn spawn_server(server: &dyn McServer) -> Result<Self> {
         let mut child = server
             .start()?
             .stdin(Stdio::piped())
@@ -46,7 +42,7 @@ impl Runner {
         // stdin: 外部 -> child
         let (stdin_tx, mut stdin_rx) = channel::<String>(32);
         // stdout: child -> 外部
-        let (stdout_tx, stdout_rx) = channel::<String>(32);
+        let (stdout_tx, stdout_rx) = channel(32);
 
         let mut child_stdin = child.stdin.take().context("child stdin not piped")?;
         let child_stdout = child.stdout.take().context("child stdout not piped")?;
@@ -58,38 +54,26 @@ impl Runner {
         ) -> tokio::io::Result<()> {
             trace!("Inputs sending: {}", line.as_str());
             child_stdin.write_all(line.as_bytes()).await?;
+
             Ok(())
         }
 
         // Child stdout -> tx
         let stdout_rx = Arc::new(Mutex::new(stdout_rx));
-        let stdout_rx_clone = Arc::clone(&stdout_rx);
         let mut lines = BufReader::new(child_stdout).lines();
         // 发送输出到管道
-        async fn send_output(
-            line: String,
-            stdout_tx: &Sender<String>,
-            stdout_rx: Arc<Mutex<Receiver<String>>>,
-        ) -> Result<(), TrySendError<String>> {
-            let mut line = Some(line);
-            loop {
-                match stdout_tx.try_send(line.take().unwrap()) {
-                    // 缓冲满时丢弃最早的输出
-                    Err(TrySendError::Full(v)) => {
-                        debug!("The channel buffer is full. Attempting to clear it.");
-                        match stdout_rx.lock().await.try_recv() {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("Failed to clear channel: {e}")
-                            }
-                        }
-                        line = Some(v)
+        async fn send_output(line: String, stdout_tx: &Sender<String>) -> Result<()> {
+            let start = tokio::time::Instant::now();
+            match stdout_tx.send(line).await {
+                Ok(_) => {
+                    let spend = start.elapsed();
+                    if spend > Duration::from_millis(5) {
+                        debug!("High backpressure: {} ms", spend.as_millis());
                     }
-                    Err(e) => return Err(e),
-                    Ok(_) => break,
+                    Ok(())
                 }
+                Err(e) => Err(e.into()),
             }
-            Ok(())
         }
 
         // Exit Guard
@@ -100,7 +84,7 @@ impl Runner {
         // 根据信号退出
         async fn stop(child: &mut Child, stdin_tx: Arc<Sender<String>>, time: Duration) {
             // 发出退出信号
-            let _ = stdin_tx.send("stop".into()).await;
+            let _ = stdin_tx.send("stop\n".into()).await;
             // 给时间优雅退出
             let graceful = timeout(time, async {
                 loop {
@@ -128,11 +112,11 @@ impl Runner {
         }
 
         // Child stdin <- rx spawn
-        task_manager
+        TASK_MANAGER
             .spawn_with_cancel(async move |t| {
                 loop {
                     select! {
-                        Some(line) = stdin_rx.recv() => recv_input(line,&mut child_stdin).await?,
+                        Some(line) = stdin_rx.recv() => recv_input(line, &mut child_stdin).await?,
                         _ = t.cancelled() => break,
                     }
                 }
@@ -140,11 +124,11 @@ impl Runner {
             })
             .await?;
         // Child stdout -> tx spawn
-        task_manager
+        TASK_MANAGER
             .spawn_with_cancel(async move |t| {
                 loop {
                     select! {
-                        Ok(Some(line)) = lines.next_line() => send_output(line,&stdout_tx,stdout_rx_clone.clone()).await?,
+                        Ok(Some(line)) = lines.next_line() => send_output(line,&stdout_tx ).await?,
                         _ = t.cancelled() => break
                     }
                 }
@@ -152,8 +136,8 @@ impl Runner {
             })
             .await?;
         // Exit Guard spawn
-        task_manager
-            .spawn(async move {
+        TASK_MANAGER
+            .spawn(async move || {
                 select! {
                     time = stop_rx => stop(&mut child,stdin_tx_clone,time?).await,
                     _ = watch(&mut child) => {}
@@ -174,7 +158,7 @@ impl Runner {
     }
 
     /// 优雅停机，只应调用一次
-    pub async fn kill_with_timeout(&self, timeout: Duration) -> anyhow::Result<()> {
+    pub async fn kill_with_timeout(&self, timeout: Duration) -> Result<()> {
         self.stop
             .lock()
             .await
@@ -186,7 +170,7 @@ impl Runner {
     }
 
     /// 等待退出
-    pub async fn wait(&self) -> anyhow::Result<ExitStatus> {
+    pub async fn wait(&self) -> Result<ExitStatus> {
         let mut rx_guard = self.exit.lock().await;
         let rx = &mut *rx_guard;
         rx.await.context("failed waiting for exit")
@@ -198,46 +182,124 @@ pub async fn sync_channel_stdio(
     input: Arc<Sender<String>>,
     output: Arc<Mutex<Receiver<String>>>,
     t: CancellationToken,
-) -> anyhow::Result<()> {
-    let mut stdin = BufReader::new(tokio::io::stdin()).lines();
-    let mut stdout = tokio::io::stdout();
-    let input = input.clone();
+) -> Result<()> {
+    let mut stdin = fuck_tokio::AsyncStdin::new();
 
-    let mut pump_stdin = async || match stdin.next_line().await {
-        Ok(Some(line)) => {
-            if input.send(line.add("\n")).await.is_err() {
-                error!("stdin -> channel failed: receiver dropped");
+    async fn pump_stdin(input: Arc<Sender<String>>, stdin: &mut fuck_tokio::AsyncStdin) {
+        match stdin.next().await {
+            Some(Ok(line)) => {
+                if input.send(line.add("\n")).await.is_err() {
+                    error!("stdin -> channel failed: receiver dropped");
+                }
             }
-        }
-        Ok(None) => {
-            warn!("stdin EOF");
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-        Err(e) => {
-            error!("stdin read error: {e}");
-        }
-    };
+            Some(Err(e)) => {
+                warn!("Stdin error: {}", e);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            None => {
+                error!("stdin read thread stopped");
+            }
+        };
+    }
 
-    let mut pump_stdout = async || match output.lock().await.recv().await {
-        Some(line) => {
-            if let Err(e) = stdout.write_all(line.as_bytes()).await {
-                error!("stdout write error: {e}");
+    async fn pump_stdout(output: Arc<Mutex<Receiver<String>>>) {
+        match output.lock().await.recv().await {
+            Some(line) => {
+                match tokio::io::stdout().write_all(line.as_bytes()).await {
+                    Err(e) => {
+                        error!("Stdout write error {e}")
+                    }
+                    Ok(_) => {}
+                }
+                let _ = tokio::io::stdout().write_all(b"\n").await;
+                let _ = tokio::io::stdout().flush().await;
             }
-            let _ = stdout.write_all(b"\n").await;
-            let _ = stdout.flush().await;
-        }
-        None => {
-            error!("channel -> stdout closed");
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    };
+            None => {
+                error!("channel -> stdout closed");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        };
+    }
 
     trace!("IO syncing");
     loop {
         select! {
-            _ = pump_stdin() => {}
-            _ = pump_stdout() => {}
+            _ = pump_stdin(input.clone(),&mut stdin) => {}
+            _ = pump_stdout(output.clone()) => {}
             _ = t.cancelled() => break Ok(())
+        }
+    }
+}
+
+/// 以下模块解决 tokio::io::stdin 引发的问题
+/// Tokio 并没有真正的异步 Stdio
+/// 在使用 Tokio 的 Stdin 时，Tokio会创建系统线程接收输入，但是这个线程接收到标准输入之前会阻碍程序退出
+/// 以下模块实现了 tokio::io::stdin 的功能，并且增加了更多销毁线程的机会（程序退出时系统会销毁 std::thread）
+/// 确保程序优雅退出
+mod fuck_tokio {
+    use crate::TASK_MANAGER;
+    use futures::Stream;
+    use futures::task::AtomicWaker;
+    use std::io::BufRead;
+    use std::io::BufReader;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::TryRecvError;
+    use std::sync::mpsc::{Receiver, Sender, channel};
+    use std::sync::{Arc, OnceLock};
+    use std::task::{Context, Poll};
+    use std::thread::JoinHandle;
+    use tracing::error;
+
+    pub struct AsyncStdin {
+        init: AtomicBool,
+        waker: Arc<AtomicWaker>,
+        rx: OnceLock<Receiver<String>>,
+        join_handle: OnceLock<JoinHandle<()>>,
+    }
+    impl AsyncStdin {
+        pub fn new() -> Self {
+            Self {
+                init: AtomicBool::new(false),
+                waker: Arc::new(AtomicWaker::new()),
+                rx: OnceLock::new(),
+                join_handle: OnceLock::new(),
+            }
+        }
+        fn thread(tx: Sender<String>, waker: Arc<AtomicWaker>) {
+            let mut stdin = BufReader::new(std::io::stdin()).lines();
+            while let Some(Ok(line)) = stdin.next() {
+                if let Err(e) = tx.send(line) {
+                    error!("Error send: {}", e)
+                } else {
+                    waker.wake();
+                }
+                if TASK_MANAGER.cancel_token.is_cancelled() {
+                    return;
+                }
+            }
+        }
+    }
+    impl Stream for AsyncStdin {
+        type Item = Result<String, TryRecvError>;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            if !self.init.load(Ordering::Acquire) {
+                self.waker.register(cx.waker());
+                let (tx, rx) = channel::<String>();
+                let waker = self.waker.clone();
+                self.join_handle
+                    .set(std::thread::spawn(move || Self::thread(tx, waker)))
+                    .unwrap();
+                self.rx.set(rx).unwrap();
+                self.init.store(true, Ordering::Release);
+                return Poll::Pending;
+            }
+            match self.rx.get().unwrap().try_recv() {
+                Ok(v) => Poll::Ready(Some(Ok(v))),
+                Err(TryRecvError::Empty) => Poll::Ready(Some(Err(TryRecvError::Empty))),
+                Err(TryRecvError::Disconnected) => Poll::Ready(None),
+            }
         }
     }
 }

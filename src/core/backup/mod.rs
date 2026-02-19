@@ -1,22 +1,23 @@
 mod handler;
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::sleep;
 
-use anyhow::Result;
+use tokio::sync::Mutex;
+use tokio::task::spawn_blocking;
+use tokio::time::sleep_until;
+use tokio::time::{Duration, Instant};
+
+use anyhow::{Context, Result};
 use chrono::Utc;
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
-use tokio::task::{JoinSet, spawn_blocking};
-use tokio::time::sleep_until;
-use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::debug;
 
-use crate::core::backup::handler::run_backup;
+use crate::core::backup::handler::BackupRepo;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BackupCfg {
@@ -61,78 +62,94 @@ impl Default for BackupCfg {
     }
 }
 
-impl BackupCfg {
-    /// 单实例的备份线程
-    async fn backup_thread(&self, t: CancellationToken) {
-        while !t.is_cancelled() {
-            if let Some(s) = &self.option.cron {
-                sleep_until(next_time(s)).await;
-                // 运行备份
-                let cfg = self.path.clone();
-                let _ = spawn_blocking(move || run_backup(cfg, "Cron Schedule".to_string()));
-            } else {
-                info!("Cron Expression is not set, backup function is disabled.");
-            }
-        }
-    }
+/// 多实例的备份管理器
+pub struct BackupManager {
+    schedule: Mutex<VecDeque<BackupTask>>,
 }
 
-/// 多实例的备份管理器
-struct BackupManager {
-    schedule: Mutex<BTreeMap<Instant, BackupCfg>>,
-    join_set: Arc<Mutex<JoinSet<Result<()>>>>,
+struct BackupTask {
+    id: usize,
+    next: Instant,
+    schedule: Schedule,
+    repo: Arc<BackupRepo>,
 }
 
 impl BackupManager {
-    fn new(join_set: Arc<Mutex<JoinSet<Result<()>>>>) -> Self {
+    pub fn new() -> Self {
         BackupManager {
-            schedule: Mutex::new(BTreeMap::new()),
-            join_set,
+            schedule: Mutex::new(VecDeque::new()),
         }
     }
-    async fn register(&self, cfg: BackupCfg) {
+    pub async fn register(&self, cfg: BackupCfg, id: usize, cache_dir: &Path) {
+        let repo = Arc::new(
+            BackupRepo::init(&cfg.path.repository, &cache_dir, cfg.path.source.clone())
+                .expect("Failed to init backup repo"),
+        );
+
         if let Some(s) = &cfg.option.cron {
-            self.schedule.lock().await.insert(next_time(s), cfg);
+            let task = BackupTask {
+                id,
+                next: BackupManager::next_time(s),
+                schedule: s.clone(),
+                repo,
+            };
+            self.schedule.lock().await.push_back(task);
             debug!("Backup plan has been registered.")
         }
     }
-    async fn backup_thread(self, t: CancellationToken) {
+    pub async fn remove(&self, id: usize) {
+        self.schedule.lock().await.retain(|x| x.id != id)
+    }
+    pub async fn run_now(&self, id: usize) -> Result<()> {
+        let repo = Arc::clone(
+            &self
+                .schedule
+                .lock()
+                .await
+                .iter()
+                .find(|x| x.id == id)
+                .context("No such task")?
+                .repo,
+        );
+        spawn_blocking(move || repo.snap("Non-Cron schedule")).await??;
+        Ok(())
+    }
+    pub async fn backup_thread(&self, t: CancellationToken) {
         while !t.is_cancelled() {
-            match self.schedule.lock().await.first_key_value() {
+            match self.schedule.lock().await.pop_front() {
                 None => {
                     // 无计划状态
                     sleep(Duration::from_secs(1));
                     continue;
                 }
-                Some((k, v)) => {
-                    if *k > Instant::now() {
-                        sleep_until(*k).await;
+                Some(t) => {
+                    if t.next > Instant::now() {
+                        sleep_until(t.next).await;
                     }
 
                     // 完成一次备份
-                    let cfg = v.path.clone();
-                    let _ = spawn_blocking(move || run_backup(cfg, "Cron Schedule".to_string()));
+                    let repo = Arc::clone(&t.repo);
+                    let _ = spawn_blocking(move || repo.snap("Cron Schedule"));
 
                     // 计划下一次备份
-                    let cfg = self.schedule.lock().await.remove(k).unwrap();
-                    self.schedule
-                        .lock()
-                        .await
-                        .insert(next_time(cfg.option.cron.as_ref().unwrap()), cfg);
+                    let task = BackupTask {
+                        next: BackupManager::next_time(&t.schedule),
+                        ..t
+                    };
+                    self.schedule.lock().await.push_back(task);
                 }
             };
         }
     }
-}
-
-/// 计算下一次运行的时间
-fn next_time(schedule: &Schedule) -> Instant {
-    let now = Utc::now();
-    let dur = schedule
-        .upcoming(Utc)
-        .next()
-        .unwrap()
-        .signed_duration_since(now);
-    let dur_std = Duration::from_millis(dur.num_milliseconds() as u64);
-    Instant::now() + dur_std
+    /// 计算下一次运行的时间
+    fn next_time(schedule: &Schedule) -> Instant {
+        let now = Utc::now();
+        let dur = schedule
+            .upcoming(Utc)
+            .next()
+            .unwrap()
+            .signed_duration_since(now);
+        let dur_std = Duration::from_millis(dur.num_milliseconds() as u64);
+        Instant::now() + dur_std
+    }
 }
