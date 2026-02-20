@@ -84,13 +84,11 @@ impl TaskManager {
                     tasks.spawn(task);
                     trace!("Spawned task")
                 }
-                Some(res) = async {
-                    tasks.join_next().await
-                } => {
+                Some(res) = tasks.join_next() => {
                     match res {
                         Ok(Ok(_)) => {}
-                        Ok(Err(e)) => error!("{}", e),
-                        Err(e) => error!("{}", e),
+                        Ok(Err(e)) => debug!("{}", e),
+                        Err(e) => debug!("{}", e),
                     }
                 }
             }
@@ -110,7 +108,7 @@ impl TaskManager {
             .take()
             .expect("No join handle")
             .await
-            .inspect_err(|e| eprintln!("{e}"));
+            .inspect_err(|e| error!("{e}"));
         debug!("Shutdown: Finish");
     }
 }

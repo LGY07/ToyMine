@@ -1,22 +1,22 @@
 use std::ops::Add;
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::time::{sleep, timeout};
 
-use crate::core::mc_server::base::McServer;
 use crate::TASK_MANAGER;
-use anyhow::{anyhow, Context, Result};
+use crate::core::mc_server::base::McServer;
+use anyhow::{Context, Result, anyhow};
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 pub struct Runner {
     pub id: usize,
@@ -67,8 +67,8 @@ impl Runner {
             match stdout_tx.send(line).await {
                 Ok(_) => {
                     let spend = start.elapsed();
-                    if spend > Duration::from_millis(5) {
-                        debug!("High backpressure: {} ms", spend.as_millis());
+                    if spend > Duration::from_millis(50) {
+                        warn!("High backpressure: {} ms", spend.as_millis());
                     }
                     Ok(())
                 }
@@ -189,7 +189,7 @@ pub async fn sync_channel_stdio(
         match stdin.next().await {
             Some(line) => {
                 if input.send(line.add("\n")).await.is_err() {
-                    error!("stdin -> channel failed: receiver dropped");
+                    debug!("stdin -> channel failed: receiver dropped");
                 }
             }
             None => {
@@ -202,17 +202,19 @@ pub async fn sync_channel_stdio(
     async fn pump_stdout(output: Arc<Mutex<Receiver<String>>>) {
         match output.lock().await.recv().await {
             Some(line) => {
-                match tokio::io::stdout().write_all(line.as_bytes()).await {
+                match tokio::io::stdout()
+                    .write_all(line.add("\n").as_bytes())
+                    .await
+                {
                     Err(e) => {
                         error!("Stdout write error {e}")
                     }
                     Ok(_) => {}
                 }
-                let _ = tokio::io::stdout().write_all(b"\n").await;
                 let _ = tokio::io::stdout().flush().await;
             }
             None => {
-                error!("channel -> stdout closed");
+                debug!("channel -> stdout closed");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         };
@@ -235,14 +237,14 @@ pub async fn sync_channel_stdio(
 /// 确保程序优雅退出
 mod fuck_tokio {
     use crate::TASK_MANAGER;
-    use futures::task::AtomicWaker;
     use futures::Stream;
+    use futures::task::AtomicWaker;
     use std::io::BufRead;
     use std::io::BufReader;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::TryRecvError;
-    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::mpsc::{Receiver, Sender, channel};
     use std::sync::{Arc, OnceLock};
     use std::task::{Context, Poll};
     use std::thread::JoinHandle;

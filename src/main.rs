@@ -1,6 +1,5 @@
 #![feature(async_fn_traits)]
 #![feature(unboxed_closures)]
-#![feature(mpmc_channel)]
 
 mod command;
 mod core;
@@ -11,7 +10,7 @@ mod versions;
 use crate::command::CommandLoader;
 use crate::core::backup::BackupManager;
 use crate::core::config::project::McServerConfig;
-use crate::core::mc_server::runner::{sync_channel_stdio, Runner};
+use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::core::task::TaskManager;
 use crate::versions::vanilla::Vanilla;
 use clap::{Parser, Subcommand};
@@ -19,6 +18,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::select;
 use tokio::signal::ctrl_c;
+use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, Registry};
@@ -81,7 +81,7 @@ fn init_tracing() {
     subscriber_builder.init();
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     // 初始化日志
     init_tracing();
@@ -120,11 +120,11 @@ async fn main() -> anyhow::Result<()> {
 
         select! {
             e = server.wait() => {
-                println!("Exit: {}",e?)
+                info!("Exit: {}",e?)
             }
             _ = ctrl_c() => {
                 server.kill_with_timeout(Duration::from_secs(10)).await?;
-                println!("Stop: {}",server.wait().await?)
+                info!("Stop: {}",server.wait().await?)
             }
         }
 
