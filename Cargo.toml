@@ -28,11 +28,13 @@ zip = "8.0"
 
 # Telemetry
 console-subscriber = { version = "0.5", optional = true }
+dhat = { version = "0.3", optional = true }
+tracing-chrome = { version = "0.7", optional = true }
 tracing-flame = { version = "0.2", optional = true }
 
 [features]
 default = []
-telemetry = ["console-subscriber", "tracing-flame"]
+telemetry = ["console-subscriber", "tracing-chrome", "tracing-flame", "dhat"]
 
 [profile.release]
 strip = true

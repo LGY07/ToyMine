@@ -1,6 +1,10 @@
 #![feature(async_fn_traits)]
 #![feature(unboxed_closures)]
 
+#[cfg(feature = "telemetry")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 mod command;
 mod core;
 mod plugin;
@@ -53,7 +57,9 @@ enum Commands {
     Info,
 }
 
-fn init_tracing() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    // 初始化日志
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
         .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
@@ -61,30 +67,35 @@ fn init_tracing() {
     let subscriber_builder = Registry::default().with(fmt_layer);
 
     #[cfg(feature = "telemetry")]
-    let subscriber_builder = {
+    let (subscriber_builder, _g1, _g2) = {
         // console layer
         let console_layer = console_subscriber::ConsoleLayer::builder()
             .with_default_env()
             .spawn();
 
-        // flame layer
-        let flame_layer = tracing_flame::FlameLayer::with_file("flamegraph.folded")
-            .unwrap()
-            .0;
+        // chrome layer
+        let (chrome_layer, chrome_guard) = tracing_chrome::ChromeLayerBuilder::new().build();
 
-        Registry::default()
-            .with(fmt_layer)
-            .with(console_layer)
-            .with(flame_layer)
+        // flame layer
+        let (flame_layer, flame_guard) =
+            tracing_flame::FlameLayer::with_file("flamegraph.folded").unwrap();
+
+        (
+            Registry::default()
+                .with(fmt_layer)
+                .with(console_layer)
+                .with(chrome_layer)
+                .with(flame_layer),
+            chrome_guard,
+            flame_guard,
+        )
     };
 
     subscriber_builder.init();
-}
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    // 初始化日志
-    init_tracing();
+    #[cfg(feature = "telemetry")]
+    dhat::Profiler::new_heap();
+
     // 参数解析
     let cli = Cli::parse();
     // 尝试从当前目录获取配置文件
