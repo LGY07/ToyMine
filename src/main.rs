@@ -1,5 +1,6 @@
 #![feature(async_fn_traits)]
 #![feature(unboxed_closures)]
+#![feature(mpmc_channel)]
 
 mod command;
 mod core;
@@ -10,7 +11,7 @@ mod versions;
 use crate::command::CommandLoader;
 use crate::core::backup::BackupManager;
 use crate::core::config::project::McServerConfig;
-use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
+use crate::core::mc_server::runner::{sync_channel_stdio, Runner};
 use crate::core::task::TaskManager;
 use crate::versions::vanilla::Vanilla;
 use clap::{Parser, Subcommand};
