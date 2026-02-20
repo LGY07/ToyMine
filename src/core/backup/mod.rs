@@ -56,7 +56,7 @@ impl Default for BackupCfg {
             },
             path: BackupPath {
                 source: vec![PathBuf::from("world")],
-                repository: PathBuf::from(".pacmine").join("backup"),
+                repository: PathBuf::from(".toymine").join("backup"),
             },
         }
     }

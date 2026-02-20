@@ -55,6 +55,12 @@ impl FromStr for McServerConfig {
 }
 
 impl McServerConfig {
+    pub async fn current() -> Option<Self> {
+        match Self::open(Path::new("ToyMine.toml")).await {
+            Ok(v) => Some(v),
+            Err(_) => None,
+        }
+    }
     pub fn new() -> Self {
         Self {
             project: Default::default(),

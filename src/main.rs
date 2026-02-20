@@ -14,14 +14,13 @@ use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::core::task::TaskManager;
 use crate::versions::vanilla::Vanilla;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::select;
 use tokio::signal::ctrl_c;
-use tracing::error;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Layer, Registry};
 
 // 创建任务管理器
 pub static TASK_MANAGER: LazyLock<TaskManager> = LazyLock::new(|| TaskManager::new());
@@ -53,36 +52,42 @@ enum Commands {
     Info,
 }
 
+fn init_tracing() {
+    let fmt_layer = tracing_subscriber::fmt::Layer::default()
+        .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+
+    #[cfg(not(feature = "telemetry"))]
+    let subscriber_builder = Registry::default().with(fmt_layer);
+
+    #[cfg(feature = "telemetry")]
+    let subscriber_builder = {
+        // console layer
+        let console_layer = console_subscriber::ConsoleLayer::builder()
+            .with_default_env()
+            .spawn();
+
+        // flame layer
+        let flame_layer = tracing_flame::FlameLayer::with_file("flamegraph.folded")
+            .unwrap()
+            .0;
+
+        Registry::default()
+            .with(fmt_layer)
+            .with(console_layer)
+            .with(flame_layer)
+    };
+
+    subscriber_builder.init();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // console layer
-    let console_layer = console_subscriber::ConsoleLayer::builder().spawn();
-    // fmt layer
-    let fmt_layer = tracing_subscriber::fmt::Layer::default();
-    // env filter
-    let filter_layer = tracing_subscriber::EnvFilter::new("trace");
-
-    // 初始化日志输出
-    tracing_subscriber::registry()
-        .with(console_layer)
-        .with(fmt_layer)
-        .with(filter_layer)
-        .init();
-
-    // 参数解析4
+    // 初始化日志
+    init_tracing();
+    // 参数解析
     let cli = Cli::parse();
     // 尝试从当前目录获取配置文件
-    let cfg = if PathBuf::from("PacMine.toml").is_file() {
-        match McServerConfig::open("PacMine.toml".as_ref()).await {
-            Ok(v) => Some(v),
-            Err(e) => {
-                error!("Invalid config file: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let cfg = McServerConfig::current().await;
 
     if let Commands::Start {
         generate,

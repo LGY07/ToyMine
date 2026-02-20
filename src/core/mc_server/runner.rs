@@ -16,7 +16,7 @@ use crate::core::mc_server::base::McServer;
 use anyhow::{Context, Result, anyhow};
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
 pub struct Runner {
     pub id: usize,
@@ -187,17 +187,14 @@ pub async fn sync_channel_stdio(
 
     async fn pump_stdin(input: Arc<Sender<String>>, stdin: &mut fuck_tokio::AsyncStdin) {
         match stdin.next().await {
-            Some(Ok(line)) => {
+            Some(line) => {
                 if input.send(line.add("\n")).await.is_err() {
                     error!("stdin -> channel failed: receiver dropped");
                 }
             }
-            Some(Err(e)) => {
-                warn!("Stdin error: {}", e);
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
             None => {
                 error!("stdin read thread stopped");
+                sleep(Duration::from_millis(200)).await;
             }
         };
     }
@@ -281,11 +278,11 @@ mod fuck_tokio {
         }
     }
     impl Stream for AsyncStdin {
-        type Item = Result<String, TryRecvError>;
+        type Item = String;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.waker.register(cx.waker());
             if !self.init.load(Ordering::Acquire) {
-                self.waker.register(cx.waker());
                 let (tx, rx) = channel::<String>();
                 let waker = self.waker.clone();
                 self.join_handle
@@ -296,8 +293,8 @@ mod fuck_tokio {
                 return Poll::Pending;
             }
             match self.rx.get().unwrap().try_recv() {
-                Ok(v) => Poll::Ready(Some(Ok(v))),
-                Err(TryRecvError::Empty) => Poll::Ready(Some(Err(TryRecvError::Empty))),
+                Ok(v) => Poll::Ready(Some(v)),
+                Err(TryRecvError::Empty) => Poll::Pending,
                 Err(TryRecvError::Disconnected) => Poll::Ready(None),
             }
         }
