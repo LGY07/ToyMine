@@ -1,5 +1,7 @@
+#![allow(incomplete_features)]
 #![feature(async_fn_traits)]
 #![feature(unboxed_closures)]
+#![feature(specialization)]
 
 #[cfg(feature = "telemetry")]
 #[global_allocator]
@@ -16,7 +18,8 @@ use crate::core::backup::BackupManager;
 use crate::core::config::project::McServerConfig;
 use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::core::task::TaskManager;
-use crate::versions::vanilla::Vanilla;
+use crate::versions::VersionManager;
+use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -61,7 +64,7 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     // 初始化日志
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
-        .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
 
     #[cfg(not(feature = "telemetry"))]
     let subscriber_builder = Registry::default().with(fmt_layer);
@@ -98,8 +101,6 @@ async fn main() -> anyhow::Result<()> {
 
     // 参数解析
     let cli = Cli::parse();
-    // 尝试从当前目录获取配置文件
-    let cfg = McServerConfig::current().await;
 
     if let Commands::Start {
         generate,
@@ -111,12 +112,28 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        let server = Vanilla::default();
-        let mut command_loader = CommandLoader::new();
+        // 尝试从当前目录获取配置文件
+        let cfg = McServerConfig::current().await;
+        // 尝试从当前目录发现服务端
+        let server = match cfg {
+            None => {
+                info!(
+                    "The configuration file was not found. Attempting to locate the server file."
+                );
+                VersionManager::detect()?
+            }
+            Some(c) => VersionManager::from_version(&c.project.version),
+        };
+        let server = match server {
+            None => return Err(anyhow!("MC Server Not Found")),
+            Some(v) => v,
+        };
+        let server = Arc::new(Runner::spawn_server(server.as_ref()).await?);
 
-        let server = Arc::new(Runner::spawn_server(&server).await?);
+        let mut command_loader = CommandLoader::new();
         command_loader.register(server.id, vec![Box::new(command::raw::ExamplePlugin)])?;
         let server_clone = Arc::clone(&server);
+
         TASK_MANAGER
             .spawn_with_cancel(async move |t| {
                 sync_channel_stdio(

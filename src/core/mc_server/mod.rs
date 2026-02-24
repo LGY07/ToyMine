@@ -11,26 +11,12 @@ use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::fmt::{Display, Formatter};
 
-use crate::core::mc_server::base::McServer;
-
-pub struct VersionLoader {
-    pub versions: Vec<Box<dyn McServer>>,
-}
-
-impl VersionLoader {
-    pub fn new() -> Self {
-        VersionLoader { versions: vec![] }
-    }
-    pub fn register(&mut self, version: Box<dyn McServer>) {
-        self.versions.push(version);
-    }
-}
-
 /// 更新渠道
 #[derive(PartialEq, Clone)]
 pub enum McChannel {
     Release(u8, u8, u8),
     Snapshot(String),
+    Unknown,
 }
 
 /// 服务端类型
@@ -119,6 +105,9 @@ impl Display for McVersion {
             McChannel::Snapshot(version) => {
                 writeln!(f, "Snapshot {}", version)
             }
+            McChannel::Unknown => {
+                writeln!(f, "Unknown")
+            }
         }?;
         Ok(())
     }
@@ -134,6 +123,7 @@ impl Serialize for McChannel {
                 serializer.serialize_str(format!("{}.{}.{}", major, minor, patch).as_str())
             }
             McChannel::Snapshot(s) => serializer.serialize_str(s),
+            McChannel::Unknown => serializer.serialize_str("Unknown"),
         }
     }
 }
@@ -158,7 +148,13 @@ impl<'de> Deserialize<'de> for McChannel {
                     Ok(Self::Snapshot(s))
                 }
             }
-            Err(_) => Ok(Self::Snapshot(s)),
+            Err(_) => {
+                if s.trim() == "Unknown" {
+                    Ok(McChannel::Unknown)
+                } else {
+                    Ok(Self::Snapshot(s))
+                }
+            }
         }
     }
 }

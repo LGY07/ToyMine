@@ -3,12 +3,11 @@
 use crate::core::mc_server::base::McVersion;
 
 use crate::core::mc_server::{McChannel, McType};
-use anyhow::{Error, Result};
-use infer;
+use crate::versions::paper_like::PAPER_MAP;
+use anyhow::{Error, Result, anyhow};
 use regex::Regex;
 use std::fs::File;
 use std::io::{Cursor, Read};
-use std::num::ParseIntError;
 use std::path::Path;
 use tracing::debug;
 use zip::read::{ZipArchive, ZipFile};
@@ -16,14 +15,6 @@ use zip::read::{ZipArchive, ZipFile};
 struct JarInfo {
     pub main_class: String,
     pub java_version: u16, // 映射后的 Java 版本
-}
-
-/// 根据文件路径获取 MIME 类型（路径传入 &str）
-pub fn get_mime_type(path: &Path) -> String {
-    // 使用 infer 检测 MIME 类型
-    infer::get_from_path(path).map_or("empty".to_string(), |mime| {
-        mime.map_or("unknown".to_string(), |mime| mime.to_string())
-    })
 }
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
@@ -61,7 +52,7 @@ fn analyze_jar(jar_path: &Path) -> Result<JarInfo> {
 
     // 检查魔术字
     if class_header[0..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
-        return Err(Error::msg("Not a Jar file"));
+        return Err(anyhow!("Not a Jar file"));
     }
 
     // major version → Java 版本：直接减 45
@@ -98,10 +89,14 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
     debug!("analyze_je_game:  Read \"META-INF/versions.list\"");
     // 读取 Jar 文件
     let mut archive = ZipArchive::new(&file)?;
+
     // 判断主类格式
     if info.main_class == "net.minecraft.bundler.Main"
-        || info.main_class == "io.papermc.paperclip.Main"
-        || info.main_class == "org.leavesmc.leavesclip.Main"
+        || PAPER_MAP
+            .iter()
+            .filter(|&x| x.main_class == info.main_class)
+            .count()
+            != 0
     {
         // 读取 `META-INF/versions.list`
         let mut version_file = archive.by_name("META-INF/versions.list")?;
@@ -112,15 +107,10 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
         // 形如 "2e2867d1c6559bdb660808deaeccb12c9ca41eb04e7b4e2adae87546e1878184	1.21.10	1.21.10/server-1.21.10.jar"
         let info_list = version_list.split("/").collect::<Vec<_>>()[1].replace(".jar", "");
         let info_list: Vec<&str> = info_list.split("-").collect();
-        // 分析服务端类型
-        let server_type = match info_list[0].trim() {
-            "server" => "vanilla",
-            t => t,
-        };
 
         // 解析版本号
         if info_list.len() == 2 {
-            return Ok(parse_version(info_list[1].trim(), server_type));
+            return Ok(parse_version(info_list[1].trim(), info_list[0].trim()));
         }
     }
 
@@ -152,7 +142,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
             let end_quote = rest[1..].find('"').expect("Problematic JSON.");
             let version = &rest[1..1 + end_quote];
             // 解析版本号，默认当成 Vanilla
-            return Ok(parse_version(version, "Vanilla"));
+            return Ok(parse_version(version, "vanilla"));
         }
     };
 
@@ -180,7 +170,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
             if let Some((key, value)) = line.split_once('=') {
                 if let "version" = key.trim() {
                     // 解析版本号
-                    return Ok(parse_version(value, "Paper"));
+                    return Ok(parse_version(value, "paper"));
                 }
             }
         }
@@ -200,7 +190,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            return Ok(parse_version(m.as_str(), "Vanilla"));
+            return Ok(parse_version(m.as_str(), "vanilla"));
         }
     }
     // 创建正则表达式，假设为 x.x
@@ -208,7 +198,7 @@ pub fn analyze_je_game(jar_path: &Path) -> Result<McVersion> {
     for s in &strings {
         if let Some(m) = re.find(s) {
             // 解析版本号
-            return Ok(parse_version(m.as_str(), "Vanilla"));
+            return Ok(parse_version(m.as_str(), "vanilla"));
         }
     }
 
@@ -298,7 +288,14 @@ fn parse_version(version_str: &str, version_type: &str) -> McVersion {
         Err(_) => McChannel::Snapshot(version_str.trim().to_string()),
     };
     McVersion {
-        server_type: McType::Java(version_type.to_string()),
+        server_type: McType::Java(
+            if version_type == "server" {
+                "vanilla"
+            } else {
+                version_type
+            }
+            .to_string(),
+        ),
         channel: chanel,
     }
 }

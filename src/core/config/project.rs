@@ -1,6 +1,7 @@
 use crate::core::backup::BackupCfg;
-use crate::core::mc_server::McType;
+use crate::core::mc_server::McChannel::Snapshot;
 use crate::core::mc_server::McType::Java;
+use crate::core::mc_server::McVersion;
 use crate::core::mc_server::base::McServer;
 use anyhow::Result;
 use erased_serde::Deserializer;
@@ -18,7 +19,7 @@ pub struct McServerConfig {
     /// 惰性更新，此处储存的值不保证最新
     /// 仅在读取时是最新的
     /// 导出配置时被最新的值替换（但不更新）
-    pub(crate) version: Value,
+    pub(crate) inner: Value,
     /// 备份配置
     pub backup: BackupCfg,
 }
@@ -26,22 +27,25 @@ pub struct McServerConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProjectCfg {
     /// 名称
-    name: String,
+    pub name: String,
     /// 描述
-    description: String,
+    pub description: String,
     /// 创建时间
-    creation_date: chrono::DateTime<chrono::Local>,
-    /// 服务端类型
-    mc_type: McType,
+    pub creation_date: chrono::DateTime<chrono::Local>,
+    /// 服务端版本
+    pub version: McVersion,
 }
 
 impl Default for ProjectCfg {
     fn default() -> Self {
         Self {
             name: "Example".to_string(),
-            description: "A PacMine project".to_string(),
+            description: "A ToyMine project".to_string(),
             creation_date: chrono::Local::now(),
-            mc_type: Java("vanilla".to_string()),
+            version: McVersion {
+                server_type: Java("vanilla".to_string()),
+                channel: Snapshot("Null".to_string()),
+            },
         }
     }
 }
@@ -64,7 +68,7 @@ impl McServerConfig {
     pub fn new() -> Self {
         Self {
             project: Default::default(),
-            version: Value::String("".to_string()),
+            inner: Value::String("".to_string()),
             backup: Default::default(),
         }
     }
@@ -74,18 +78,18 @@ impl McServerConfig {
         file.read_to_string(&mut string).await?;
         Ok(toml::from_str(string.as_str())?)
     }
-    pub fn to_string(&self, version: &dyn McServer) -> Result<String> {
+    pub fn to_string(&self, inner: &dyn McServer) -> Result<String> {
         Ok(toml::to_string(&Self {
             project: self.project.clone(),
-            version: Value::try_from(version.to_config()?)?,
+            inner: Value::try_from(inner.to_config()?)?,
             backup: self.backup.clone(),
         })?)
     }
-    pub fn load_from_str(config: &str, version: &mut dyn McServer) -> Result<Self> {
+    pub fn load_from_str(config: &str, inner: &mut dyn McServer) -> Result<Self> {
         let cfg = toml::from_str::<Self>(config)?;
-        let version_cfg = toml::to_string(&cfg.version)?;
+        let version_cfg = toml::to_string(&cfg.inner)?;
         let de = toml::Deserializer::parse(version_cfg.as_str())?;
-        version.load_config(&mut <dyn Deserializer>::erase(de))?;
+        inner.load_config(&mut <dyn Deserializer>::erase(de))?;
         Ok(cfg)
     }
 }
