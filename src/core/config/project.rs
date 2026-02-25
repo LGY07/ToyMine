@@ -6,7 +6,7 @@ use crate::core::mc_server::base::McServer;
 use anyhow::Result;
 use erased_serde::Deserializer;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tokio::io::AsyncReadExt;
 use toml::Value;
@@ -34,6 +34,8 @@ pub struct ProjectCfg {
     pub creation_date: chrono::DateTime<chrono::Local>,
     /// 服务端版本
     pub version: McVersion,
+    /// 服务端文件
+    pub server_file: PathBuf,
 }
 
 impl Default for ProjectCfg {
@@ -46,6 +48,7 @@ impl Default for ProjectCfg {
                 server_type: Java("vanilla".to_string()),
                 channel: Snapshot("Null".to_string()),
             },
+            server_file: PathBuf::from_str("server.jar").unwrap(),
         }
     }
 }

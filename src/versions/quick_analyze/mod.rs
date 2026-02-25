@@ -18,7 +18,7 @@ struct JarInfo {
 }
 
 /// 分析 JAR 文件，获取 Main-Class 和 Java 版本（直接 major_version - 45）
-fn analyze_jar(jar_path: &Path) -> Result<JarInfo> {
+pub fn analyze_jar(jar_path: &Path) -> Result<JarInfo> {
     // 打开文件
     let file = File::open(jar_path)?;
     // 读取 zip

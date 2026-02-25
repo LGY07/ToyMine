@@ -9,75 +9,46 @@ pub trait McServerUpdate: McServer {
     async fn install_version(&self, target: McVersion) -> Result<()>;
 }
 
-#[async_trait]
-pub trait TryMcServerUpdate: McServer {
-    fn impl_updater(&self) -> bool;
-    async fn latest(&self) -> Result<McVersion>;
-    async fn is_latest(&self, current: McVersion) -> Result<bool>;
-    async fn install(&self, target: McVersion) -> Result<()>;
-    async fn update(&self, current: McVersion) -> Result<()>;
-}
-
-#[async_trait]
-impl<T> TryMcServerUpdate for T
-where
-    T: McServer + Sync,
-{
-    default fn impl_updater(&self) -> bool {
-        false
-    }
-
-    default async fn latest(&self) -> Result<McVersion> {
-        Err(anyhow!(
-            "The updater has not been implemented for this server."
-        ))
-    }
-
-    default async fn is_latest(&self, _: McVersion) -> Result<bool> {
-        Err(anyhow!(
-            "The updater has not been implemented for this server."
-        ))
-    }
-
-    default async fn install(&self, _: McVersion) -> Result<()> {
-        Err(anyhow!(
-            "The updater has not been implemented for this server."
-        ))
-    }
-
-    default async fn update(&self, _: McVersion) -> Result<()> {
-        Err(anyhow!(
-            "The updater has not been implemented for this server."
-        ))
-    }
-}
-
-#[async_trait]
-impl<T> TryMcServerUpdate for T
-where
-    T: McServerUpdate + Sync,
-{
-    default fn impl_updater(&self) -> bool {
-        true
-    }
-
-    default async fn latest(&self) -> Result<McVersion> {
-        self.latest_version().await
-    }
-
-    default async fn is_latest(&self, current: McVersion) -> Result<bool> {
-        Ok(current >= self.latest().await?)
-    }
-
-    default async fn install(&self, target: McVersion) -> Result<()> {
-        self.install_version(target).await
-    }
-
-    default async fn update(&self, current: McVersion) -> Result<()> {
-        let latest = self.latest().await?;
-        if current < latest {
-            self.install(latest).await?
+impl dyn McServer {
+    pub async fn latest(&self) -> Result<McVersion> {
+        match self.impl_update() {
+            None => Err(anyhow!(
+                "The updater has not been implemented for this server."
+            )),
+            Some(t) => t.latest_version().await,
         }
-        Ok(())
+    }
+
+    pub async fn is_latest(&self, current: McVersion) -> Result<bool> {
+        match self.impl_update() {
+            None => Err(anyhow!(
+                "The updater has not been implemented for this server."
+            )),
+            Some(t) => Ok(current >= t.latest_version().await?),
+        }
+    }
+
+    pub async fn install(&self, target: McVersion) -> Result<()> {
+        match self.impl_update() {
+            None => Err(anyhow!(
+                "The updater has not been implemented for this server."
+            )),
+            Some(t) => t.install_version(target).await,
+        }
+    }
+
+    pub async fn update(&self, current: McVersion) -> Result<()> {
+        match self.impl_update() {
+            None => Err(anyhow!(
+                "The updater has not been implemented for this server."
+            )),
+            Some(t) => {
+                let latest = t.latest_version().await?;
+                if current < latest {
+                    t.install_version(latest).await?
+                }
+                Ok(())
+            }
+        }
     }
 }

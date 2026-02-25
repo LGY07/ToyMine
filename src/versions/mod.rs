@@ -1,11 +1,10 @@
-use crate::core::mc_server::base::McServer;
-use crate::versions::quick_analyze::analyze_je_game;
-
+use crate::core::config::project::McServerConfig;
 use crate::core::mc_server::McType::{Bedrock, Java};
-use crate::core::mc_server::McVersion;
+use crate::core::mc_server::base::McServer;
 use crate::versions::bds::BDS;
 use crate::versions::paper_like::{PAPER_MAP, PaperLike};
 use crate::versions::pumpkin::Pumpkin;
+use crate::versions::quick_analyze::analyze_je_game;
 use crate::versions::vanilla::Vanilla;
 use anyhow::{Result, anyhow};
 use std::path::Path;
@@ -19,7 +18,7 @@ pub mod vanilla;
 pub struct VersionManager;
 
 impl VersionManager {
-    pub fn detect() -> Result<Option<Box<dyn McServer>>> {
+    pub fn detect_server() -> Result<Option<Box<dyn McServer>>> {
         let jar = Path::new("server.jar");
         let bds = Path::new(match std::env::consts::OS {
             "windows" => "bedrock_server.exe",
@@ -54,9 +53,9 @@ impl VersionManager {
             return Ok(match analyze_je_game(jar)?.server_type {
                 Java(s) => {
                     if s.as_str() == "vanilla" {
-                        Some(Vanilla::new())
+                        Some(Vanilla::new(jar))
                     } else if PAPER_MAP.iter().filter(|&x| x.name == s.as_str()).count() != 0 {
-                        Some(PaperLike::new())
+                        Some(PaperLike::new(jar))
                     } else {
                         None
                     }
@@ -65,28 +64,31 @@ impl VersionManager {
             });
         }
         if is_bds {
-            return Ok(Some(BDS::new()));
+            return Ok(Some(BDS::new(bds)));
         }
         if is_pum {
-            return Ok(Some(Pumpkin::new()));
+            return Ok(Some(Pumpkin::new(pum)));
         }
 
         unreachable!()
     }
-    pub fn from_version(version: &McVersion) -> Option<Box<dyn McServer>> {
-        match &version.server_type {
+    pub fn detect_config() -> Result<McServerConfig> {
+        todo!()
+    }
+    pub fn from_cfg(cfg: &McServerConfig) -> Option<Box<dyn McServer>> {
+        match &cfg.project.version.server_type {
             Java(s) => {
                 if s == "vanilla" {
-                    Some(Vanilla::new())
+                    Some(Vanilla::new(&cfg.project.server_file))
                 } else if PAPER_MAP.iter().filter(|&x| x.name == s.as_str()).count() != 0 {
-                    Some(PaperLike::new())
+                    Some(PaperLike::new(&cfg.project.server_file))
                 } else if s == "pumpkin" {
-                    Some(Pumpkin::new())
+                    Some(Pumpkin::new(&cfg.project.server_file))
                 } else {
                     None
                 }
             }
-            Bedrock(_) => Some(BDS::new()),
+            Bedrock(_) => Some(BDS::new(&cfg.project.server_file)),
         }
     }
 }

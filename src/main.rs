@@ -1,7 +1,5 @@
-#![allow(incomplete_features)]
 #![feature(async_fn_traits)]
 #![feature(unboxed_closures)]
-#![feature(specialization)]
 
 #[cfg(feature = "telemetry")]
 #[global_allocator]
@@ -13,19 +11,12 @@ mod plugin;
 mod runtime;
 mod versions;
 
-use crate::command::CommandLoader;
+use crate::core::arguments;
 use crate::core::backup::BackupManager;
-use crate::core::config::project::McServerConfig;
-use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::core::task::TaskManager;
-use crate::versions::VersionManager;
-use anyhow::anyhow;
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
-use tokio::select;
-use tokio::signal::ctrl_c;
-use tracing::info;
+use std::sync::LazyLock;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, Registry};
@@ -61,7 +52,7 @@ enum Commands {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     // 初始化日志
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
         .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
@@ -102,61 +93,13 @@ async fn main() -> anyhow::Result<()> {
     // 参数解析
     let cli = Cli::parse();
 
-    if let Commands::Start {
-        generate,
-        detach,
-        attach,
-    } = &cli.command
-    {
-        if *generate {
-            return Ok(());
-        }
-
-        // 尝试从当前目录获取配置文件
-        let cfg = McServerConfig::current().await;
-        // 尝试从当前目录发现服务端
-        let server = match cfg {
-            None => {
-                info!(
-                    "The configuration file was not found. Attempting to locate the server file."
-                );
-                VersionManager::detect()?
-            }
-            Some(c) => VersionManager::from_version(&c.project.version),
-        };
-        let server = match server {
-            None => return Err(anyhow!("MC Server Not Found")),
-            Some(v) => v,
-        };
-        let server = Arc::new(Runner::spawn_server(server.as_ref()).await?);
-
-        let mut command_loader = CommandLoader::new();
-        command_loader.register(server.id, vec![Box::new(command::raw::ExamplePlugin)])?;
-        let server_clone = Arc::clone(&server);
-
-        TASK_MANAGER
-            .spawn_with_cancel(async move |t| {
-                sync_channel_stdio(
-                    server_clone.input.clone(),
-                    command_loader.load(server_clone.clone().as_ref()).await?,
-                    t,
-                )
-                .await?;
-                Ok(())
-            })
-            .await?;
-
-        select! {
-            e = server.wait() => {
-                info!("Exit: {}",e?)
-            }
-            _ = ctrl_c() => {
-                server.kill_with_timeout(Duration::from_secs(10)).await?;
-                info!("Stop: {}",server.wait().await?)
-            }
-        }
-
-        TASK_MANAGER.shutdown().await;
+    match cli.command {
+        Commands::Start {
+            generate,
+            detach,
+            attach,
+        } => arguments::start::start(generate, detach, attach).await?,
+        Commands::Info => arguments::info::info().await?,
     }
     Ok(())
 }

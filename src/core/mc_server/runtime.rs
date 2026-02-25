@@ -16,59 +16,35 @@ pub trait McServerRuntime: McServer {
     fn ext_script(&self, arch: &str, os: &str) -> Result<String>;
 }
 
-#[async_trait]
-pub trait TryMcServerRuntime: McServer {
-    fn impl_runtime(&self) -> bool;
-    fn gen_script(&self) -> Result<String>;
-    fn specific_script(&self, arch: &str, os: &str) -> Result<String>;
-    async fn prepare(&self) -> Result<()>;
-}
-
-#[async_trait]
-impl<T> TryMcServerRuntime for T
-where
-    T: McServer + Sync,
-{
-    default fn impl_runtime(&self) -> bool {
-        false
+impl dyn McServer {
+    pub fn gen_script(&self) -> Result<String> {
+        match self.impl_runtime() {
+            None => self.script(),
+            Some(t) => t.ext_script(std::env::consts::ARCH, std::env::consts::OS),
+        }
     }
 
-    default fn gen_script(&self) -> Result<String> {
-        self.script()
+    pub fn specific_script(&self, arch: &str, os: &str) -> Result<String> {
+        match self.impl_runtime() {
+            None => Err(anyhow!(
+                "The runtime manager has not been implemented for this server."
+            )),
+            Some(t) => t.ext_script(arch, os),
+        }
     }
 
-    default fn specific_script(&self, _: &str, _: &str) -> Result<String> {
-        Err(anyhow!(
-            "The runtime manager has not been implemented for this server."
-        ))
-    }
-
-    default async fn prepare(&self) -> Result<()> {
-        Err(anyhow!(
-            "The runtime manager has not been implemented for this server."
-        ))
-    }
-}
-
-#[async_trait]
-impl<T> TryMcServerRuntime for T
-where
-    T: McServerRuntime + Sync,
-{
-    default fn impl_runtime(&self) -> bool {
-        true
-    }
-    default fn gen_script(&self) -> Result<String> {
-        self.ext_script(std::env::consts::ARCH, std::env::consts::OS)
-    }
-    default fn specific_script(&self, arch: &str, os: &str) -> Result<String> {
-        Ok(self.ext_script(arch, os)?)
-    }
-    default async fn prepare(&self) -> Result<()> {
-        if !self.ready_runtime().await? {
-            self.setup_runtime().await
-        } else {
-            Ok(())
+    pub async fn prepare(&self) -> Result<()> {
+        match self.impl_runtime() {
+            None => Err(anyhow!(
+                "The runtime manager has not been implemented for this server."
+            )),
+            Some(t) => {
+                if !t.ready_runtime().await? {
+                    t.setup_runtime().await
+                } else {
+                    Ok(())
+                }
+            }
         }
     }
 }
