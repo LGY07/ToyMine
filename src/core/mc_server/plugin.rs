@@ -1,5 +1,6 @@
+use crate::core::mc_server::NotImplemented;
 use crate::core::mc_server::base::McServer;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 
 /// 插件管理器
@@ -35,9 +36,7 @@ pub trait ServerPluginRepo: Sync {
 impl dyn McServer {
     pub async fn plugin_list(&self) -> Result<Vec<(&'static str, ServerPlugin)>> {
         match self.impl_plugin() {
-            None => Err(anyhow!(
-                "The plugin manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Plugin.into()),
             Some(t) => {
                 let mut list = Vec::new();
                 for repo in t.get_repo() {
@@ -55,9 +54,7 @@ impl dyn McServer {
 
     pub async fn plugin_search(&self, keyword: &str) -> Result<Vec<(&'static str, ServerPlugin)>> {
         match self.impl_plugin() {
-            None => Err(anyhow!(
-                "The plugin manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Plugin.into()),
             Some(t) => {
                 let mut list = Vec::new();
                 for repo in t.get_repo() {
@@ -75,9 +72,7 @@ impl dyn McServer {
 
     pub async fn plugin_install(&self, repo_name: &str, plugin: ServerPlugin) -> Result<()> {
         match self.impl_plugin() {
-            None => Err(anyhow!(
-                "The plugin manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Plugin.into()),
             Some(t) => {
                 if let Some(repo) = t.get_repo().iter().find(|&&repo| repo.name() == repo_name) {
                     repo.install(plugin).await
@@ -90,9 +85,7 @@ impl dyn McServer {
     }
     pub async fn plugin_remove(&self, repo_name: &str, plugin: ServerPlugin) -> Result<()> {
         match self.impl_plugin() {
-            None => Err(anyhow!(
-                "The plugin manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Plugin.into()),
             Some(t) => {
                 if let Some(repo) = t.get_repo().iter().find(|&&repo| repo.name() == repo_name) {
                     repo.remove(plugin).await
@@ -110,9 +103,7 @@ impl dyn McServer {
         plugin: ServerPlugin,
     ) -> Result<ServerPlugin> {
         match self.impl_plugin() {
-            None => Err(anyhow!(
-                "The plugin manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Plugin.into()),
             Some(t) => {
                 if let Some(repo) = t.get_repo().iter().find(|&&repo| repo.name() == repo_name) {
                     repo.latest(plugin).await

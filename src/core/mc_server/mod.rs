@@ -9,7 +9,30 @@ use erased_serde::__private::serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+
+pub enum NotImplemented {
+    Update,
+    Runtime,
+    Plugin,
+}
+
+impl Debug for NotImplemented {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "This server does not implement this function: {}", self)
+    }
+}
+
+impl Display for NotImplemented {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotImplemented::Update => f.write_str("Update manager not implemented"),
+            NotImplemented::Runtime => f.write_str("Runtime manager not implemented"),
+            NotImplemented::Plugin => f.write_str("Plugin manager not implemented"),
+        }
+    }
+}
+impl std::error::Error for NotImplemented {}
 
 /// 更新渠道
 #[derive(PartialEq, Clone)]

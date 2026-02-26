@@ -2,6 +2,7 @@ use crate::core::mc_server::McVersion;
 use crate::core::mc_server::base::McServer;
 use crate::core::mc_server::runtime::McServerRuntime;
 use crate::core::mc_server::update::McServerUpdate;
+use crate::versions::quick_analyze::analyze_jar;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -77,11 +78,19 @@ impl McServerUpdate for PaperLike {
 #[async_trait]
 impl McServerRuntime for PaperLike {
     async fn ready_runtime(&self) -> anyhow::Result<bool> {
-        todo!()
+        debug!("Check runtime");
+        Ok(!crate::runtime::java::GLOBAL_JAVA
+            .check(analyze_jar(&self.server_path)?.java_version as usize)
+            .await
+            .is_empty())
     }
 
     async fn setup_runtime(&self) -> anyhow::Result<()> {
-        todo!()
+        debug!("Install runtime");
+        crate::runtime::java::GLOBAL_JAVA
+            .install(analyze_jar(&self.server_path)?.java_version as usize)
+            .await?;
+        Ok(())
     }
 
     fn ext_script(&self, _: &str, os: &str) -> anyhow::Result<String> {

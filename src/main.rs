@@ -9,6 +9,7 @@ mod command;
 mod core;
 mod plugin;
 mod runtime;
+mod util;
 mod versions;
 
 use crate::core::arguments;
@@ -16,6 +17,7 @@ use crate::core::backup::BackupManager;
 use crate::core::task::TaskManager;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -25,6 +27,17 @@ use tracing_subscriber::{Layer, Registry};
 pub static TASK_MANAGER: LazyLock<TaskManager> = LazyLock::new(|| TaskManager::new());
 // 创建备份管理器
 pub static BACKUP_MANAGER: LazyLock<BackupManager> = LazyLock::new(|| BackupManager::new());
+
+// 全局缓存目录
+pub static GLOBAL_CACHE: LazyLock<PathBuf> =
+    LazyLock::new(|| std::env::home_dir().unwrap().join(".toymine").join("cache"));
+// 共享运行时目录
+pub static GLOBAL_RUNTIME: LazyLock<PathBuf> = LazyLock::new(|| {
+    std::env::home_dir()
+        .unwrap()
+        .join(".toymine")
+        .join("runtime")
+});
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

@@ -1,5 +1,6 @@
+use crate::core::mc_server::NotImplemented;
 use crate::core::mc_server::base::McServer;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 
 /// Runtime 管理器
@@ -26,18 +27,14 @@ impl dyn McServer {
 
     pub fn specific_script(&self, arch: &str, os: &str) -> Result<String> {
         match self.impl_runtime() {
-            None => Err(anyhow!(
-                "The runtime manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Runtime.into()),
             Some(t) => t.ext_script(arch, os),
         }
     }
 
     pub async fn prepare(&self) -> Result<()> {
         match self.impl_runtime() {
-            None => Err(anyhow!(
-                "The runtime manager has not been implemented for this server."
-            )),
+            None => Err(NotImplemented::Runtime.into()),
             Some(t) => {
                 if !t.ready_runtime().await? {
                     t.setup_runtime().await

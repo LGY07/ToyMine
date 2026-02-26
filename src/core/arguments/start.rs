@@ -1,5 +1,6 @@
 use crate::command::CommandLoader;
 use crate::core::config::project::McServerConfig;
+use crate::core::mc_server::NotImplemented;
 use crate::core::mc_server::runner::{Runner, sync_channel_stdio};
 use crate::versions::VersionManager;
 use crate::{TASK_MANAGER, command};
@@ -39,6 +40,14 @@ pub async fn start(generate: bool, _detach: bool, _attach: bool) -> Result<()> {
         file.flush().await?;
 
         return Ok(());
+    }
+    match server.prepare().await {
+        Ok(_) => {}
+        Err(e) => {
+            if e.downcast_ref::<NotImplemented>().is_none() {
+                return Err(e);
+            }
+        }
     }
     let server = Arc::new(Runner::spawn_server(server.as_ref()).await?);
 

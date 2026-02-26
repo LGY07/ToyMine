@@ -12,8 +12,8 @@ use std::path::Path;
 use tracing::debug;
 use zip::read::{ZipArchive, ZipFile};
 
-struct JarInfo {
-    pub main_class: String,
+pub struct JarInfo {
+    main_class: String,
     pub java_version: u16, // 映射后的 Java 版本
 }
 
