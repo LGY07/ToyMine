@@ -73,7 +73,7 @@ enum Commands {
 async fn main() -> Result<()> {
     // 初始化日志
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
-        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
+        .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
     #[cfg(not(feature = "telemetry"))]
     let subscriber_builder = Registry::default().with(fmt_layer);

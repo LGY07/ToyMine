@@ -28,6 +28,7 @@ colored = "3.1"
 cron = { version = "0.15", features = ["serde"] }
 indicatif = "0.18"
 regex = "1.12"
+tailspin = "5.5"
 uuid = { version = "1.21", features = ["v4"] }
 
 # File
@@ -49,7 +50,6 @@ console-subscriber = { version = "0.5", optional = true }
 dhat = { version = "0.3", optional = true }
 tracing-chrome = { version = "0.7", optional = true }
 tracing-flame = { version = "0.2", optional = true }
-
 
 [features]
 default = []

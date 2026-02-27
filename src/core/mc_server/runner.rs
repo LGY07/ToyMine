@@ -1,5 +1,4 @@
 use std::ops::Add;
-use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -68,7 +67,7 @@ impl Runner {
             match stdout_tx.send(line).await {
                 Ok(_) => {
                     let spend = start.elapsed();
-                    if spend > Duration::from_millis(50) {
+                    if spend > Duration::from_millis(100) {
                         warn!("High backpressure: {} ms", spend.as_millis());
                     }
                     Ok(())
@@ -203,6 +202,7 @@ pub async fn sync_channel_stdio(
     async fn pump_stdout(output: Arc<Mutex<Receiver<String>>>) {
         match output.lock().await.recv().await {
             Some(line) => {
+                let line = crate::util::highlighter::HIGHLIGHTER.apply(&*line);
                 match tokio::io::stdout()
                     .write_all(line.add("\n").as_bytes())
                     .await

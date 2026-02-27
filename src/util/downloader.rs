@@ -77,11 +77,10 @@ impl Downloader {
                 let pb = ProgressBar::new(total_size);
                 pb.set_style(
                     ProgressStyle::default_bar()
-                        .template("{msg} [{bar:40}] {binary_bytes}/{binary_total_bytes} {binary_bytes_per_sec} ({eta})")
+                        .template("[{bar:40}] {binary_bytes}/{binary_total_bytes} {binary_bytes_per_sec} ({eta})")
                         .unwrap()
                         .progress_chars("=>-"),
                 );
-                pb.set_message("Downloading...");
                 // 计算分片
                 let split_ranges = (0..total_size).step_by(BLOCK_SIZE as usize).map(|start| {
                     let end = (start + BLOCK_SIZE - 1).min(total_size - 1);

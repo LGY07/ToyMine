@@ -31,7 +31,12 @@ pub enum JavaType {
 impl GeneralJavaRuntimeManager {
     fn new() -> Self {
         Self {
-            list: Default::default(),
+            list: Mutex::new(vec![JavaRuntime {
+                java_home: Default::default(),
+                distribution: JavaType::GraalVM,
+                version: 21,
+                installing: Arc::new(Default::default()),
+            }]),
         }
     }
     pub async fn check(&self, version: usize) -> Vec<(PathBuf, JavaType)> {
