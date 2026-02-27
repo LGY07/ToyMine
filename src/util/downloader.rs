@@ -155,9 +155,9 @@ impl Downloader {
         let file = tokio::fs::File::open(&path).await?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
-        let mut buffer = Box::new([0u8; 8192]);
+        let mut buffer = vec![0u8; 8192].into_boxed_slice();
         loop {
-            let n = reader.read(&mut buffer[..]).await?;
+            let n = reader.read(&mut buffer).await?;
             if n == 0 {
                 break;
             }
