@@ -1,11 +1,11 @@
-use crate::util::downloader::Downloader;
 use crate::GLOBAL_RUNTIME;
+use crate::util::downloader::Downloader;
 use anyhow::{Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::info;
 
 pub static GLOBAL_JAVA: LazyLock<GeneralJavaRuntimeManager> =
     LazyLock::new(|| GeneralJavaRuntimeManager::new());

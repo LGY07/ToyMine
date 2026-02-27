@@ -1,8 +1,8 @@
-use crate::util::hash::Sha256Digest;
 use crate::GLOBAL_CACHE;
-use anyhow::anyhow;
+use crate::util::hash::Sha256Digest;
 use anyhow::Result;
-use futures::{stream, StreamExt};
+use anyhow::anyhow;
+use futures::{StreamExt, stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use nyquest::r#async::Response;
 use nyquest::{AsyncClient, Request};
