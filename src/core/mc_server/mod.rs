@@ -160,7 +160,7 @@ impl<'de> Deserialize<'de> for McChannel {
 
         let parts = s
             .split('.')
-            .map(|x| x.parse())
+            .map(|x| x.parse::<u8>())
             .collect::<Result<Vec<u8>, _>>();
 
         match parts {

@@ -29,14 +29,19 @@ pub static TASK_MANAGER: LazyLock<TaskManager> = LazyLock::new(|| TaskManager::n
 pub static BACKUP_MANAGER: LazyLock<BackupManager> = LazyLock::new(|| BackupManager::new());
 
 // 全局缓存目录
-pub static GLOBAL_CACHE: LazyLock<PathBuf> =
-    LazyLock::new(|| std::env::home_dir().unwrap().join(".toymine").join("cache"));
+pub static GLOBAL_CACHE: LazyLock<PathBuf> = LazyLock::new(|| {
+    let path = std::env::home_dir().unwrap().join(".toymine").join("cache");
+    std::fs::create_dir_all(&path).expect("Failed to creat cache directory");
+    path
+});
 // 共享运行时目录
 pub static GLOBAL_RUNTIME: LazyLock<PathBuf> = LazyLock::new(|| {
-    std::env::home_dir()
+    let path = std::env::home_dir()
         .unwrap()
         .join(".toymine")
-        .join("runtime")
+        .join("runtime");
+    std::fs::create_dir_all(&path).expect("Failed to creat runtime directory");
+    path
 });
 
 #[derive(Parser)]

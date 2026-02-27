@@ -1,18 +1,20 @@
-use crate::GLOBAL_CACHE;
 use crate::util::hash::Sha256Digest;
-use anyhow::Result;
+use crate::GLOBAL_CACHE;
 use anyhow::anyhow;
-use futures::AsyncReadExt;
-use futures::{StreamExt, stream};
+use anyhow::Result;
+use futures::{stream, StreamExt};
+use indicatif::{ProgressBar, ProgressStyle};
 use nyquest::r#async::Response;
 use nyquest::{AsyncClient, Request};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, OnceCell};
-use tracing::error;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+use tracing::{debug, error};
 
 pub struct Downloader {
     client: AsyncClient,
@@ -22,6 +24,8 @@ pub struct Downloader {
 const BLOCK_SIZE: u64 = 1024 * 1024;
 /// 单个文件最大连接数
 const CONCURRENCY: usize = 8;
+/// 最大重试次数
+const MAX_RETRY: usize = 3;
 
 static GLOBAL_DOWNLOADER: OnceCell<Downloader> = OnceCell::const_new();
 
@@ -48,66 +52,97 @@ impl Downloader {
     }
     /// 下载文件，自动启用多线程
     pub async fn download(&self, uri: impl Into<Cow<'static, str>>) -> Result<PathBuf> {
-        let uri = Cow::clone(&uri.into());
-        // 获取文件信息
-        let head = self.client.request(Request::head(uri.clone())).await?;
-        let file_name = GLOBAL_CACHE.join(parse_filename(head.get_header("Content-Disposition")?));
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&file_name)
-            .await?;
-        let support_range = matches!(
-            head.get_header("accept-ranges")?
-                .first()
-                .map(|t| t.as_str()),
-            Some("bytes")
-        );
-        // 判断是否多线程下载
-        if let Some(total_size) = head.content_length()
-            && support_range
-        {
-            // 计算分片
-            let split_ranges = (0..total_size).step_by(BLOCK_SIZE as usize).map(|start| {
-                let end = (start + BLOCK_SIZE - 1).min(total_size - 1);
-                (start, end)
-            });
-            file.set_len(total_size).await?;
-            let file = Arc::new(Mutex::new(file));
-            // 并发下载
-            let _ = stream::iter(split_ranges)
-                .map(|(start, end)| {
-                    let file = file.clone();
-                    let uri = uri.clone();
-                    async move {
-                        if let Err(e) = download_chunk(&self.client, uri, &file, start, end).await {
-                            error!("chunk error: {:?}", e);
+        let inner = Box::pin(async move {
+            let uri = Cow::clone(&uri.into());
+            // 获取文件信息
+            let head = self.client.request(Request::head(uri.clone())).await?;
+            let file_name = GLOBAL_CACHE.join(uuid::Uuid::new_v4().to_string());
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(&file_name)
+                .await?;
+            let support_range = matches!(
+                head.get_header("accept-ranges")?
+                    .first()
+                    .map(|t| t.as_str()),
+                Some("bytes")
+            );
+            // 判断是否多线程下载
+            if let Some(total_size) = head.content_length()
+                && support_range
+            {
+                debug!("Multithreaded downloading");
+                // 设置进度条
+                let pb = ProgressBar::new(total_size);
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template("{msg} [{bar:40}] {binary_bytes}/{binary_total_bytes} {binary_bytes_per_sec} ({eta})")
+                        .unwrap()
+                        .progress_chars("=>-"),
+                );
+                pb.set_message("Downloading...");
+                // 计算分片
+                let split_ranges = (0..total_size).step_by(BLOCK_SIZE as usize).map(|start| {
+                    let end = (start + BLOCK_SIZE - 1).min(total_size - 1);
+                    (start, end)
+                });
+                file.set_len(total_size).await?;
+                let file = Arc::new(Mutex::new(file));
+                let pb = Arc::new(pb);
+                // 并发下载
+                stream::iter(split_ranges)
+                    .for_each_concurrent(CONCURRENCY, |(start, end)| {
+                        let file = file.clone();
+                        let uri = uri.clone();
+                        let pb = pb.clone();
+                        async move {
+                            for _ in 0..MAX_RETRY {
+                                if let Err(e) =
+                                    download_chunk(&self.client, uri.clone(), &file, start, end)
+                                        .await
+                                {
+                                    error!("chunk error: {e:?}");
+                                } else {
+                                    break;
+                                }
+                            }
+                            pb.inc(end - start)
                         }
+                    })
+                    .await;
+                file.lock().await.flush().await?;
+                pb.finish_with_message("done");
+            } else {
+                debug!("Single-threaded downloading");
+                let pb = ProgressBar::new_spinner();
+                pb.set_style(
+                    ProgressStyle::default_spinner()
+                        .template("{spinner} {msg}")
+                        .unwrap(),
+                );
+                pb.set_message("Downloading...");
+                pb.enable_steady_tick(Duration::from_millis(100));
+                for _ in 0..MAX_RETRY {
+                    let mut stream = self
+                        .client
+                        .request(Request::get(uri.clone()))
+                        .await?
+                        .into_async_read()
+                        .compat();
+                    if let Err(e) = tokio::io::copy(&mut stream, &mut file).await {
+                        error!("downloading error: {e:?}")
+                    } else {
+                        break;
                     }
-                })
-                .buffer_unordered(CONCURRENCY)
-                .collect::<Vec<()>>();
-            file.lock().await.flush().await?;
-        } else {
-            let mut stream = self
-                .client
-                .request(Request::get(uri))
-                .await?
-                .into_async_read();
-
-            let mut buffer = Box::new([0u8; BLOCK_SIZE as usize]);
-            loop {
-                let n = stream.read(&mut buffer[..]).await?;
-
-                if n == 0 {
-                    break;
                 }
-                file.write_all(&buffer[..n]).await?;
+                pb.finish_with_message("done");
+                file.flush().await?;
             }
-            file.flush().await?;
-        }
 
-        Ok(file_name)
+            Ok(file_name)
+        });
+        inner.await
     }
     /// 下载并校验 sha256
     pub async fn download_with_sha256(
@@ -137,31 +172,7 @@ impl Downloader {
         }
     }
 }
-/// 解析文件名
-fn parse_filename(dispositions: Vec<String>) -> String {
-    let cd = dispositions.join(",");
-    // 优先 filename*
-    if let Some(encoded) = cd
-        .split(';')
-        .map(|s| s.trim())
-        .find(|s| s.starts_with("filename*="))
-        && let Some(val) = encoded.splitn(2, '=').nth(1)
-    {
-        let encoded = percent_encoding::percent_decode(val.as_bytes()).collect::<Vec<_>>();
-        return String::from_utf8_lossy(&*encoded).into();
-    }
-    // fallback filename=
-    cd.split(';')
-        .map(|s| s.trim())
-        .find(|s| s.starts_with("filename="))
-        .and_then(|s| {
-            s.splitn(2, '=')
-                .nth(1)
-                .map(|v| v.trim_matches('"').to_string())
-        })
-        // fallback uuid
-        .unwrap_or(uuid::Uuid::new_v4().to_string())
-}
+
 /// 下载分片
 async fn download_chunk(
     client: &AsyncClient,
@@ -176,7 +187,7 @@ async fn download_chunk(
         .await?;
     let bytes = resp.bytes().await?;
     let mut file = file.lock().await;
-    file.seek(std::io::SeekFrom::Start(start)).await?;
+    file.seek(tokio::io::SeekFrom::Start(start)).await?;
     file.write_all(&bytes).await?;
     Ok(())
 }

@@ -1,10 +1,11 @@
-use crate::GLOBAL_RUNTIME;
 use crate::util::downloader::Downloader;
+use crate::GLOBAL_RUNTIME;
 use anyhow::{Error, Result};
-use std::path::PathBuf;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{debug, info};
 
 pub static GLOBAL_JAVA: LazyLock<GeneralJavaRuntimeManager> =
     LazyLock::new(|| GeneralJavaRuntimeManager::new());
@@ -76,6 +77,35 @@ impl GeneralJavaRuntimeManager {
     }
 }
 
+/// 拉平一层目录
+async fn flatten_single_child(dir: &Path) -> std::io::Result<()> {
+    let mut rd = tokio::fs::read_dir(dir).await?;
+    let mut entries = Vec::new();
+    while let Some(entry) = rd.next_entry().await? {
+        entries.push(entry);
+    }
+    // 如果不是只有一个目录，直接返回
+    if entries.len() != 1 {
+        return Ok(());
+    }
+    let child_path = entries[0].path();
+    if !child_path.is_dir() {
+        return Ok(());
+    }
+    // 遍历子目录文件
+    let mut rd = tokio::fs::read_dir(&child_path).await?;
+    while let Some(entry) = rd.next_entry().await? {
+        let path = entry.path();
+        if let Some(name) = path.file_name() {
+            tokio::fs::rename(&path, dir.join(name)).await?;
+        }
+    }
+    // 删除空目录（如果里面还有东西会失败）
+    tokio::fs::remove_dir(child_path).await?;
+    Ok(())
+}
+
+/// 获取 GraalVM
 async fn get_graal(version: usize) -> Result<()> {
     info!("Start downloading GraalVM JDK {version}");
     let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
@@ -96,8 +126,8 @@ async fn get_graal(version: usize) -> Result<()> {
         .await
         .download_with_sha256(url, hash)
         .await?;
-    info!("Download complete. Start decompression.");
-    let file = tokio::task::spawn_blocking(move || {
+    info!("Download complete. Start unzipping.");
+    let (file, path) = tokio::task::spawn_blocking(move || {
         use std::io::{Read, Write};
         let mut zip = zip::ZipArchive::new(std::fs::File::open(&file)?)?;
         let path = GLOBAL_RUNTIME.join(format!(
@@ -106,8 +136,16 @@ async fn get_graal(version: usize) -> Result<()> {
             std::env::consts::OS,
             std::env::consts::ARCH
         ));
+        let pb = ProgressBar::new(zip.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{bar:40}] {pos}/{len} ({eta}) {msg}")
+                .unwrap()
+                .progress_chars("=>-"),
+        );
         for i in 0..zip.len() {
             let mut file = zip.by_index(i)?;
+            pb.set_message(format!("Unzipping {}", file.name()));
             let outpath = path.join(file.name());
             if file.is_dir() {
                 std::fs::create_dir_all(&outpath)?;
@@ -120,10 +158,13 @@ async fn get_graal(version: usize) -> Result<()> {
             let mut buffer = Vec::new();
             let _ = file.read_to_end(&mut buffer);
             outfile.write_all(&buffer)?;
+            pb.inc(1)
         }
-        Ok::<PathBuf, Error>(file)
+        pb.finish_with_message("done");
+        Ok::<(PathBuf, PathBuf), Error>((file, path))
     })
     .await??;
+    flatten_single_child(&path).await?;
     info!("Clearing download cache");
     tokio::fs::remove_file(file).await?;
     Ok(())
