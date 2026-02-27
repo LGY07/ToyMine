@@ -1,5 +1,5 @@
-use crate::GLOBAL_RUNTIME;
 use crate::util::downloader::Downloader;
+use crate::GLOBAL_RUNTIME;
 use anyhow::{Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
@@ -151,18 +151,18 @@ async fn get_graal(version: usize) -> Result<()> {
         for i in 0..zip.len() {
             let mut file = zip.by_index(i)?;
             pb.set_message(format!("Unzipping {}", file.name()));
-            let outpath = path.join(file.name());
+            let out_path = path.join(file.name());
             if file.is_dir() {
-                std::fs::create_dir_all(&outpath)?;
+                std::fs::create_dir_all(&out_path)?;
                 continue;
             }
-            if let Some(parent) = outpath.parent() {
+            if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut outfile = std::fs::File::create(&outpath)?;
+            let mut out_file = std::fs::File::create(&out_path)?;
             let mut buffer = Vec::new();
             let _ = file.read_to_end(&mut buffer);
-            outfile.write_all(&buffer)?;
+            out_file.write_all(&buffer)?;
             pb.inc(1)
         }
         pb.finish_with_message("done");
